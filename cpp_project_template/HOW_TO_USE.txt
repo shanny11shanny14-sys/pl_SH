@@ -1,0 +1,5 @@
+1. Copy this whole folder to a new project folder.
+2. Open the new folder in VS Code.
+3. Put your code in program.cpp.
+4. Press Ctrl+Shift+B to build.
+5. Run program_build.exe to execute.
