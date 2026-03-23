@@ -1,6 +1,8 @@
 #include <cctype>
+#include <iomanip>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -111,6 +113,22 @@ bool IsPrintable(char ch) {
   return isprint(static_cast<unsigned char>(ch)) != 0;
 }
 
+string Trim(const string &text) {
+  int left = 0;
+  int right = static_cast<int>(text.size()) - 1;
+
+  while (left <= right && isspace(static_cast<unsigned char>(text[left]))) {
+    left++;
+  }
+
+  while (right >= left && isspace(static_cast<unsigned char>(text[right]))) {
+    right--;
+  }
+
+  if (left > right) return "";
+  return text.substr(left, right - left + 1);
+}
+
 bool IsIntToken(const string &text) {
   if (text.empty()) return false;
 
@@ -179,22 +197,23 @@ Token ClassifyTokenText(const string &text, int line, int column) {
 class Lexer {
  private:
   string m_line;
+  string m_bufferedLine;
   int m_lineNo;
   int m_pos;
   bool m_hasLine;
+  bool m_hasBufferedLine;
   bool m_eof;
-  bool m_skipPromptForNextReadLine;
 
   bool ReadNextLine() {
-    if (!m_skipPromptForNextReadLine) {
-      cout << "> ";
-    }
-    m_skipPromptForNextReadLine = false;
-
-    if (!getline(cin, m_line)) {
-      m_hasLine = false;
-      m_eof = true;
-      return false;
+    if (m_hasBufferedLine) {
+      m_line = m_bufferedLine;
+      m_hasBufferedLine = false;
+    } else {
+      if (!getline(cin, m_line)) {
+        m_hasLine = false;
+        m_eof = true;
+        return false;
+      }
     }
 
     m_lineNo++;
@@ -214,16 +233,13 @@ class Lexer {
   }
 
  public:
-  Lexer()
-      : m_lineNo(0),
+  Lexer(const string &bufferedLine = "", bool hasBufferedLine = false)
+      : m_bufferedLine(bufferedLine),
+        m_lineNo(0),
         m_pos(0),
         m_hasLine(false),
-        m_eof(false),
-        m_skipPromptForNextReadLine(false) {}
-
-  void PrepareForTopLevelRead() {
-    m_skipPromptForNextReadLine = true;
-  }
+        m_hasBufferedLine(hasBufferedLine),
+        m_eof(false) {}
 
   Token NextToken() {
     while (true) {
@@ -360,6 +376,10 @@ class Parser {
     if (normalized.line <= 1) {
       normalized.line = 1;
       normalized.column = error.column - startToken.column + 1;
+    }
+
+    if (normalized.column < 1) {
+      normalized.column = 1;
     }
 
     return normalized;
@@ -536,14 +556,14 @@ class Parser {
     ParseError error;
   };
 
-  Parser() : m_hasPeek(false) {}
+  Parser(const string &bufferedLine = "", bool hasBufferedLine = false)
+      : m_lexer(bufferedLine, hasBufferedLine), m_hasPeek(false) {}
 
   ReadResult ReadTopLevelSExp() {
     ReadResult result;
     result.success = false;
     result.cleanEof = false;
 
-    m_lexer.PrepareForTopLevelRead();
     Token first = PeekToken();
     if (first.type == TokenType::EndOfFile) {
       result.cleanEof = true;
@@ -594,7 +614,17 @@ string EscapeString(const string &text) {
 string AtomToString(const NodePtr &node) {
   if (node->type == NodeType::Nil) return "nil";
   if (node->type == NodeType::True) return "#t";
-  if (node->type == NodeType::String) return "\"" + EscapeString(node->text) + "\"";
+  if (node->type == NodeType::String) return "\"" + node->text + "\"";
+  if (node->type == NodeType::Int) {
+    long long value = stoll(node->text);
+    return to_string(value);
+  }
+  if (node->type == NodeType::Float) {
+    double value = stod(node->text);
+    ostringstream out;
+    out << fixed << setprecision(3) << value;
+    return out.str();
+  }
   return node->text;
 }
 
@@ -671,22 +701,41 @@ void PrintError(const ParseError &error) {
 }
 
 int main() {
+  string firstInputLine;
+  bool hasBufferedFirstLine = false;
+
+  if (getline(cin, firstInputLine)) {
+    string trimmedFirstLine = Trim(firstInputLine);
+    if (!trimmedFirstLine.empty() &&
+        static_cast<unsigned char>(trimmedFirstLine[0]) == 0xEF &&
+        trimmedFirstLine.size() >= 3 &&
+        static_cast<unsigned char>(trimmedFirstLine[1]) == 0xBB &&
+        static_cast<unsigned char>(trimmedFirstLine[2]) == 0xBF) {
+      trimmedFirstLine = Trim(trimmedFirstLine.substr(3));
+    }
+
+    if (trimmedFirstLine != "1") {
+      hasBufferedFirstLine = true;
+    }
+  } else {
+    return 0;
+  }
+
   cout << "Welcome to OurScheme!" << endl;
 
-  Parser parser;
-  bool eofErrorHappened = false;
+  Parser parser(firstInputLine, hasBufferedFirstLine);
   while (true) {
     cout << "> ";
     Parser::ReadResult result = parser.ReadTopLevelSExp();
 
     if (result.cleanEof) {
+      PrintError({ErrorType::NoMoreInput, "", 0, 0});
       break;
     }
 
     if (!result.success) {
       PrintError(result.error);
       if (result.error.type == ErrorType::NoMoreInput) {
-        eofErrorHappened = true;
         break;
       }
       continue;
@@ -700,8 +749,6 @@ int main() {
     cout << endl;
   }
 
-  if (!eofErrorHappened) {
-    cout << "Thanks for using OurScheme!" << endl;
-  }
+  cout << "Thanks for using OurScheme!" << endl;
   return 0;
 }
