@@ -1,7 +1,6 @@
-#include <cctype>
+#include <cctype> // test
 #include <iomanip>
 #include <iostream>
-#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -9,18 +8,18 @@
 using namespace std;
 
 enum class TokenType {
-  LeftParen,
-  RightParen,
-  Dot,
-  Quote,
-  Int,
-  Float,
-  String,
-  Nil,
-  True,
-  Symbol,
-  EndOfFile,
-  NoClosingQuote
+  LeftParen,      // "("
+  RightParen,     // ")"
+  Dot,            // "."
+  Quote,          // "'"
+  Int,            // This is a whole number like 123.
+  Float,          // This is a number with a dot like 3.14.
+  String,         // This is a word inside " ".
+  Nil,            // nil or false
+  True,           // true
+  Symbol,         // This is a normal name like abc.
+  EndOfFile,      // no more input
+  NoClosingQuote  // a string forgot its last ".
 };
 
 enum class NodeType {
@@ -42,8 +41,8 @@ enum class ErrorType {
 
 struct Token {
   TokenType type;
-  string text;
-  string display;
+  string input;
+  string output;
   int line;
   int column;
 };
@@ -51,23 +50,30 @@ struct Token {
 struct Node {
   NodeType type;
   string text;
-  shared_ptr<Node> left;
-  shared_ptr<Node> right;
+  Node *left;
+  Node *right;
 };
 
-struct ParseError {
+struct error_message {
   ErrorType type;
   string tokenText;
   int line;
   int column;
 };
 
-using NodePtr = shared_ptr<Node>;
+struct SourcePosition {
+  int line;
+  int column;
+};
 
-NodePtr MakeNode(NodeType type, const string &text = "") {
-  NodePtr node = make_shared<Node>();
+using NodePtr = Node*;
+
+NodePtr MakeNode(NodeType type, string text = "") {
+  NodePtr node(new Node());
   node->type = type;
   node->text = text;
+  node->left = NULL;
+  node->right = NULL;
   return node;
 }
 
@@ -79,25 +85,25 @@ NodePtr MakeTrue() {
   return MakeNode(NodeType::True, "#t");
 }
 
-NodePtr MakeCons(const NodePtr &left, const NodePtr &right) {
+NodePtr MakeCons(NodePtr left, NodePtr right) {
   NodePtr node = MakeNode(NodeType::Cons);
   node->left = left;
   node->right = right;
   return node;
 }
 
-NodePtr MakeAtomFromToken(const Token &token) {
+NodePtr MakeAtomFromToken(Token token) {
   if (token.type == TokenType::Nil) return MakeNil();
   if (token.type == TokenType::True) return MakeTrue();
-  if (token.type == TokenType::Int) return MakeNode(NodeType::Int, token.text);
-  if (token.type == TokenType::Float) return MakeNode(NodeType::Float, token.text);
-  if (token.type == TokenType::String) return MakeNode(NodeType::String, token.text);
-  return MakeNode(NodeType::Symbol, token.text);
+  if (token.type == TokenType::Int) return MakeNode(NodeType::Int, token.input);
+  if (token.type == TokenType::Float) return MakeNode(NodeType::Float, token.input);
+  if (token.type == TokenType::String) return MakeNode(NodeType::String, token.input);
+  return MakeNode(NodeType::Symbol, token.input);
 }
-
-NodePtr BuildList(const vector<NodePtr> &items, const NodePtr &tail) {
+//=======================================================================
+NodePtr BuildList(vector<NodePtr> items, NodePtr tail) {
   NodePtr result = tail;
-  for (int i = static_cast<int>(items.size()) - 1; i >= 0; --i) {
+  for (int i = (int)items.size() - 1; i >= 0; --i) {
     result = MakeCons(items[i], result);
   }
 
@@ -105,23 +111,23 @@ NodePtr BuildList(const vector<NodePtr> &items, const NodePtr &tail) {
 }
 
 bool IsSeparator(char ch) {
-  return isspace(static_cast<unsigned char>(ch)) || ch == '(' || ch == ')' ||
+  return isspace((unsigned char)ch) || ch == '(' || ch == ')' ||
          ch == '\'' || ch == '"' || ch == ';';
 }
 
 bool IsPrintable(char ch) {
-  return isprint(static_cast<unsigned char>(ch)) != 0;
+  return isprint((unsigned char)ch) != 0;
 }
 
-string Trim(const string &text) {
+string Trim(string text) {
   int left = 0;
-  int right = static_cast<int>(text.size()) - 1;
+  int right = (int)text.size() - 1;
 
-  while (left <= right && isspace(static_cast<unsigned char>(text[left]))) {
+  while (left <= right && isspace((unsigned char)text[left])) {
     left++;
   }
 
-  while (right >= left && isspace(static_cast<unsigned char>(text[right]))) {
+  while (right >= left && isspace((unsigned char)text[right])) {
     right--;
   }
 
@@ -129,7 +135,7 @@ string Trim(const string &text) {
   return text.substr(left, right - left + 1);
 }
 
-bool IsIntToken(const string &text) {
+bool IsIntToken(string text) {
   if (text.empty()) return false;
 
   int index = 0;
@@ -137,10 +143,10 @@ bool IsIntToken(const string &text) {
     index++;
   }
 
-  if (index >= static_cast<int>(text.size())) return false;
+  if (index >= (int)text.size()) return false;
 
-  for (int i = index; i < static_cast<int>(text.size()); ++i) {
-    if (!isdigit(static_cast<unsigned char>(text[i]))) {
+  for (int i = index; i < (int)text.size(); ++i) {
+    if (!isdigit((unsigned char)text[i])) {
       return false;
     }
   }
@@ -148,7 +154,7 @@ bool IsIntToken(const string &text) {
   return true;
 }
 
-bool IsFloatToken(const string &text) {
+bool IsFloatToken(string text) {
   if (text.empty()) return false;
 
   int index = 0;
@@ -156,16 +162,16 @@ bool IsFloatToken(const string &text) {
     index++;
   }
 
-  if (index >= static_cast<int>(text.size())) return false;
+  if (index >= (int)text.size()) return false;
 
   int dotCount = 0;
   int digitCount = 0;
-  for (int i = index; i < static_cast<int>(text.size()); ++i) {
+  for (int i = index; i < (int)text.size(); ++i) {
     char ch = text[i];
     if (ch == '.') {
       dotCount++;
       if (dotCount > 1) return false;
-    } else if (isdigit(static_cast<unsigned char>(ch))) {
+    } else if (isdigit((unsigned char)ch)) {
       digitCount++;
     } else {
       return false;
@@ -177,10 +183,11 @@ bool IsFloatToken(const string &text) {
   return text != ".";
 }
 
-Token ClassifyTokenText(const string &text, int line, int column) {
+//=======================================================================
+Token ClassifyTokenText(string text, int line, int column) {
   Token token;
-  token.text = text;
-  token.display = text;
+  token.input = text;
+  token.output = text;
   token.line = line;
   token.column = column;
 
@@ -195,113 +202,123 @@ Token ClassifyTokenText(const string &text, int line, int column) {
 }
 
 class Lexer {
- private:
+  private:
   string m_line;
   string m_bufferedLine;
-  int m_lineNo;
-  int m_pos;
-  bool m_hasLine;
-  bool m_hasBufferedLine;
-  bool m_eof;
+  int index_line;
+  int position;
+  bool else_line;
+  bool buffered_line;
+  bool end;
 
   bool ReadNextLine() {
-    if (m_hasBufferedLine) {
+    if (buffered_line) {
       m_line = m_bufferedLine;
-      m_hasBufferedLine = false;
+      buffered_line = false;
     } else {
       if (!getline(cin, m_line)) {
-        m_hasLine = false;
-        m_eof = true;
+        else_line = false;
+        end = true;
         return false;
       }
     }
 
-    m_lineNo++;
-    m_pos = 0;
-    m_hasLine = true;
+    index_line++;
+    position = 0;
+    else_line = true;
     return true;
   }
 
-  Token MakeSimpleToken(TokenType type, const string &text, int line, int column) {
+  Token MakeSimpleToken(TokenType type, string text, int line, int column) {
     Token token;
     token.type = type;
-    token.text = text;
-    token.display = text;
+    token.input = text;
+    token.output = text;
     token.line = line;
     token.column = column;
     return token;
   }
 
  public:
-  Lexer(const string &bufferedLine = "", bool hasBufferedLine = false)
-      : m_bufferedLine(bufferedLine),
-        m_lineNo(0),
-        m_pos(0),
-        m_hasLine(false),
-        m_hasBufferedLine(hasBufferedLine),
-        m_eof(false) {}
+  Lexer(string bufferedLine = "", bool hasBufferedLine = false)
+  {
+    m_bufferedLine = bufferedLine;
+    index_line = 0;
+    position = 0;
+    else_line = false;
+    buffered_line = hasBufferedLine;
+    end = false;
+  }
+
+  SourcePosition CurrentPosition() {
+    if (else_line && position < (int)m_line.size()) {
+      return {index_line, position + 1};
+    }
+
+    return {index_line + 1, 1};
+  }
 
   Token NextToken() {
     while (true) {
-      if ((!m_hasLine || m_pos >= static_cast<int>(m_line.size())) && !ReadNextLine()) {
-        return MakeSimpleToken(TokenType::EndOfFile, "", m_lineNo + 1, 1);
+      if ((!else_line || position >= (int)m_line.size()) && !ReadNextLine()) {
+        return MakeSimpleToken(TokenType::EndOfFile, "", index_line + 1, 1);
       }
 
-      while (m_pos < static_cast<int>(m_line.size()) &&
-             isspace(static_cast<unsigned char>(m_line[m_pos]))) {
-        m_pos++;
+      while (position < (int)m_line.size() &&
+             isspace((unsigned char)m_line[position])) {
+        position++;
       }
 
-      if (m_pos >= static_cast<int>(m_line.size())) {
+      if (position >= (int)m_line.size()) {
         continue;
       }
 
-      if (m_line[m_pos] == ';') {
-        m_pos = static_cast<int>(m_line.size());
+      if (m_line[position] == ';') {
+        position = (int)m_line.size();
         continue;
       }
 
       break;
     }
 
-    int startLine = m_lineNo;
-    int startColumn = m_pos + 1;
-    char ch = m_line[m_pos];
+    int startLine = index_line;
+    int startColumn = position + 1;
+    char ch = m_line[position];
 
     if (ch == '(') {
-      m_pos++;
+      position++;
       return MakeSimpleToken(TokenType::LeftParen, "(", startLine, startColumn);
     }
 
     if (ch == ')') {
-      m_pos++;
+      position++;
       return MakeSimpleToken(TokenType::RightParen, ")", startLine, startColumn);
     }
 
     if (ch == '\'') {
-      m_pos++;
+      position++;
       return MakeSimpleToken(TokenType::Quote, "'", startLine, startColumn);
     }
 
     if (ch == '"') {
       string value;
-      m_pos++;
+      position++;
 
-      while (m_pos < static_cast<int>(m_line.size())) {
-        char current = m_line[m_pos++];
+      while (position < (int)m_line.size()) {
+        char current = m_line[position++];
 
         if (current == '"') {
           Token token;
           token.type = TokenType::String;
-          token.text = value;
-          token.display = "\"" + value + "\"";
+          token.input = value;
+          token.output = "\"" + value + "\"";
           token.line = startLine;
           token.column = startColumn;
           return token;
         }
 
-        if (current == '\\' && m_pos < static_cast<int>(m_line.size())) {
-          char next = m_line[m_pos++];
+        if (current == '\\' && position < (int)m_line.size()) {
+          char next = m_line[position++];
           if (next == 'n') value += '\n';
           else if (next == 't') value += '\t';
           else if (next == '"') value += '"';
@@ -316,31 +333,31 @@ class Lexer {
       }
 
       return MakeSimpleToken(TokenType::NoClosingQuote, "", startLine,
-                             static_cast<int>(m_line.size()) + 1);
+                             (int)m_line.size() + 1);
     }
 
     string text;
-    while (m_pos < static_cast<int>(m_line.size())) {
-      char current = m_line[m_pos];
+    while (position < (int)m_line.size()) {
+      char current = m_line[position];
       if (!IsPrintable(current) || IsSeparator(current)) {
         break;
       }
 
       text += current;
-      m_pos++;
+      position++;
     }
 
     return ClassifyTokenText(text, startLine, startColumn);
   }
 
   void DiscardRestOfLine(int line) {
-    if (m_hasLine && m_lineNo == line) {
-      m_pos = static_cast<int>(m_line.size());
+    if (else_line && index_line == line) {
+      position = (int)m_line.size();
     }
   }
 
-  bool IsAtCleanEof() const {
-    return m_eof;
+  bool IsAtCleanEof() {
+    return end;
   }
 };
 
@@ -365,17 +382,17 @@ class Parser {
     return token;
   }
 
-  ParseError NormalizeError(const ParseError &error, const Token &startToken) {
+  error_message NormalizeError(error_message error, SourcePosition start) {
     if (error.type == ErrorType::NoMoreInput) {
       return error;
     }
 
-    ParseError normalized = error;
-    normalized.line = error.line - startToken.line + 1;
+    error_message normalized = error;
+    normalized.line = error.line - start.line + 1;
 
     if (normalized.line <= 1) {
       normalized.line = 1;
-      normalized.column = error.column - startToken.column + 1;
+      normalized.column = error.column - start.column + 1;
     }
 
     if (normalized.column < 1) {
@@ -385,34 +402,34 @@ class Parser {
     return normalized;
   }
 
-  ParseError MakeUnexpectedAtomOrLeftParen(const Token &token) {
-    ParseError error;
+  error_message MakeUnexpectedAtomOrLeftParen(Token token) {
+    error_message error;
     error.type = ErrorType::UnexpectedAtomOrLeftParen;
-    error.tokenText = token.display;
+    error.tokenText = token.output;
     error.line = token.line;
     error.column = token.column;
     return error;
   }
 
-  ParseError MakeUnexpectedRightParen(const Token &token) {
-    ParseError error;
+  error_message MakeUnexpectedRightParen(Token token) {
+    error_message error;
     error.type = ErrorType::UnexpectedRightParen;
-    error.tokenText = token.display;
+    error.tokenText = token.output;
     error.line = token.line;
     error.column = token.column;
     return error;
   }
 
-  ParseError MakeNoClosingQuote(const Token &token) {
-    ParseError error;
+  error_message MakeNoClosingQuote(Token token) {
+    error_message error;
     error.type = ErrorType::NoClosingQuote;
     error.line = token.line;
     error.column = token.column;
     return error;
   }
 
-  ParseError MakeNoMoreInput() {
-    ParseError error;
+  error_message MakeNoMoreInput() {
+    error_message error;
     error.type = ErrorType::NoMoreInput;
     error.line = 0;
     error.column = 0;
@@ -425,14 +442,14 @@ class Parser {
            type == TokenType::True || type == TokenType::Symbol;
   }
 
-  NodePtr MakeQuoteNode(const NodePtr &quoted) {
+  NodePtr MakeQuoteNode(NodePtr quoted) {
     vector<NodePtr> items;
     items.push_back(MakeNode(NodeType::Symbol, "quote"));
     items.push_back(quoted);
     return BuildList(items, MakeNil());
   }
 
-  bool ParseSExp(NodePtr &result, ParseError &error) {
+  bool ParseSExp(NodePtr &result, error_message &error) {
     Token token = PeekToken();
 
     if (token.type == TokenType::EndOfFile) {
@@ -553,34 +570,43 @@ class Parser {
     bool success;
     bool cleanEof;
     NodePtr expression;
-    ParseError error;
+    error_message error;
   };
 
-  Parser(const string &bufferedLine = "", bool hasBufferedLine = false)
-      : m_lexer(bufferedLine, hasBufferedLine), m_hasPeek(false) {}
+  Parser(string bufferedLine = "", bool hasBufferedLine = false)
+  {
+    m_lexer = Lexer(bufferedLine, hasBufferedLine);
+    m_hasPeek = false;
+  }
 
   ReadResult ReadTopLevelSExp() {
     ReadResult result;
     result.success = false;
     result.cleanEof = false;
 
+    SourcePosition start = m_lexer.CurrentPosition();
     Token first = PeekToken();
+
+    if (first.type != TokenType::EndOfFile && first.line > start.line) {
+      start = {first.line, 1};
+    }
+
     if (first.type == TokenType::EndOfFile) {
       result.cleanEof = true;
       return result;
     }
 
     if (first.type == TokenType::NoClosingQuote) {
-      result.error = NormalizeError(MakeNoClosingQuote(first), first);
+      result.error = NormalizeError(MakeNoClosingQuote(first), start);
       m_lexer.DiscardRestOfLine(first.line);
       m_hasPeek = false;
       return result;
     }
 
-    ParseError error;
+    error_message error;
     NodePtr expression;
     if (!ParseSExp(expression, error)) {
-      result.error = NormalizeError(error, first);
+      result.error = NormalizeError(error, start);
       if (error.line > 0) {
         m_lexer.DiscardRestOfLine(error.line);
       }
@@ -594,11 +620,11 @@ class Parser {
   }
 };
 
-bool IsAtom(const NodePtr &node) {
+bool IsAtom(NodePtr node) {
   return node->type != NodeType::Cons;
 }
 
-string EscapeString(const string &text) {
+string EscapeString(string text) {
   string result;
   for (char ch : text) {
     if (ch == '\n') result += "\\n";
@@ -611,7 +637,7 @@ string EscapeString(const string &text) {
   return result;
 }
 
-string AtomToString(const NodePtr &node) {
+string AtomToString(NodePtr node) {
   if (node->type == NodeType::Nil) return "nil";
   if (node->type == NodeType::True) return "#t";
   if (node->type == NodeType::String) return "\"" + node->text + "\"";
@@ -628,62 +654,73 @@ string AtomToString(const NodePtr &node) {
   return node->text;
 }
 
-void PrintSExp(const NodePtr &node, int indent);
+vector<string> FormatSExpLines(NodePtr node) {
+  if (IsAtom(node)) {
+    return { AtomToString(node) };
+  }
 
-void PrintListTail(const NodePtr &node, int indent) {
+  vector<string> lines;
+
+  vector<NodePtr> items;
   NodePtr current = node;
-  bool first = true;
-
   while (current->type == NodeType::Cons) {
-    if (first) {
-      if (IsAtom(current->left)) {
-        cout << " " << AtomToString(current->left);
-      } else {
-        cout << "\n";
-        PrintSExp(current->left, indent + 1);
-      }
-      first = false;
-    } else {
-      cout << "\n";
-      if (IsAtom(current->left)) {
-        cout << string(indent + 1, ' ') << AtomToString(current->left);
-      } else {
-        PrintSExp(current->left, indent + 1);
-      }
-    }
-
+    items.push_back(current->left);
     current = current->right;
   }
+  NodePtr tail = current;  // This is the tail. For a normal list, it is nil.
 
-  if (current->type != NodeType::Nil) {
-    cout << "\n" << string(indent + 1, ' ') << ".";
-    cout << "\n";
-    if (IsAtom(current)) {
-      cout << string(indent + 1, ' ') << AtomToString(current);
-    } else {
-      PrintSExp(current, indent + 1);
+  auto addChildAsNewLine = [&](NodePtr child) {
+    vector<string> childLines = FormatSExpLines(child);
+    lines.push_back(" " + childLines[0]);
+    for (size_t i = 1; i < childLines.size(); ++i) {
+      lines.push_back(" " + childLines[i]);
     }
+  };
+
+  // Put the first item right after "( ".
+  vector<string> firstLines = FormatSExpLines(items[0]);
+  lines.push_back("( " + firstLines[0]);
+  for (size_t i = 1; i < firstLines.size(); ++i) {
+    lines.push_back(" " + firstLines[i]);
+  }
+
+  // Put each next item on a new line.
+  for (size_t i = 1; i < items.size(); ++i) {
+    addChildAsNewLine(items[i]);
+  }
+
+  // If this is a dotted pair, print the dot and the tail.
+  if (tail->type != NodeType::Nil) {
+    lines.push_back(" .");
+    addChildAsNewLine(tail);
+  }
+
+  lines.push_back(")");
+  return lines;
+}
+
+void PrintSExp(NodePtr node, int indent) {
+  vector<string> lines = FormatSExpLines(node);
+  for (string &line : lines) {
+    cout << string(indent, ' ') << line << "\n";
   }
 }
 
-void PrintSExp(const NodePtr &node, int indent) {
-  if (IsAtom(node)) {
-    cout << string(indent, ' ') << AtomToString(node);
-    return;
-  }
+void DeleteTree(NodePtr node) {
+  if (node == NULL) return;
 
-  cout << string(indent, ' ') << "(";
-  PrintListTail(node, indent);
-  cout << "\n" << string(indent, ' ') << ")";
+  DeleteTree(node->left);
+  DeleteTree(node->right);
+  delete node;
 }
 
-bool IsExitExpression(const NodePtr &node) {
+bool IsExitExpression(NodePtr node) {
   if (node->type != NodeType::Cons) return false;
   if (node->left->type != NodeType::Symbol || node->left->text != "exit") return false;
   return node->right->type == NodeType::Nil;
 }
 
-void PrintError(const ParseError &error) {
+void PrintError(error_message error) {
   if (error.type == ErrorType::UnexpectedAtomOrLeftParen) {
     cout << "ERROR (unexpected token) : atom or '(' expected when token at Line "
          << error.line << " Column " << error.column << " is >>"
@@ -703,14 +740,14 @@ void PrintError(const ParseError &error) {
 int main() {
   string firstInputLine;
   bool hasBufferedFirstLine = false;
-
+  cout << "test";
   if (getline(cin, firstInputLine)) {
     string trimmedFirstLine = Trim(firstInputLine);
     if (!trimmedFirstLine.empty() &&
-        static_cast<unsigned char>(trimmedFirstLine[0]) == 0xEF &&
+        (unsigned char)trimmedFirstLine[0] == 0xEF &&
         trimmedFirstLine.size() >= 3 &&
-        static_cast<unsigned char>(trimmedFirstLine[1]) == 0xBB &&
-        static_cast<unsigned char>(trimmedFirstLine[2]) == 0xBF) {
+        (unsigned char)trimmedFirstLine[1] == 0xBB &&
+        (unsigned char)trimmedFirstLine[2] == 0xBF) {
       trimmedFirstLine = Trim(trimmedFirstLine.substr(3));
     }
 
@@ -742,11 +779,12 @@ int main() {
     }
 
     if (IsExitExpression(result.expression)) {
+      DeleteTree(result.expression);
       break;
     }
 
     PrintSExp(result.expression, 0);
-    cout << endl;
+    DeleteTree(result.expression);
   }
 
   cout << "Thanks for using OurScheme!" << endl;
