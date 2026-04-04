@@ -1,4 +1,4 @@
-#include <cctype> // test
+#include <cctype>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -740,7 +740,7 @@ void PrintError(error_message error) {
 int main() {
   string firstInputLine;
   bool hasBufferedFirstLine = false;
-  cout << "test";
+
   if (getline(cin, firstInputLine)) {
     string trimmedFirstLine = Trim(firstInputLine);
     if (!trimmedFirstLine.empty() &&
@@ -780,6 +780,7 @@ int main() {
 
     if (IsExitExpression(result.expression)) {
       DeleteTree(result.expression);
+      cout << "Thanks for using OurScheme!" << endl;
       break;
     }
 
@@ -787,6 +788,5 @@ int main() {
     DeleteTree(result.expression);
   }
 
-  cout << "Thanks for using OurScheme!" << endl;
   return 0;
 }
