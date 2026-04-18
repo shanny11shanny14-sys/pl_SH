@@ -251,7 +251,17 @@ class Lexer {
   }
 
   SourcePosition CurrentPosition() {
-    if (else_line && position < (int)m_line.size()) {
+    if (else_line) {
+      int probe = position;
+      while (probe < (int)m_line.size() &&
+             isspace((unsigned char)m_line[probe])) {
+        probe++;
+      }
+
+      if (probe >= (int)m_line.size() || m_line[probe] == ';') {
+        return {index_line + 1, 1};
+      }
+
       return {index_line, position + 1};
     }
 
@@ -434,7 +444,7 @@ class Parser {
     error.line = 0;
     error.column = 0;
     return error;
-  }
+  } 
 
   bool IsAtomToken(TokenType type) {
     return type == TokenType::Int || type == TokenType::Float ||
@@ -587,10 +597,6 @@ class Parser {
     SourcePosition start = m_lexer.CurrentPosition();
     Token first = PeekToken();
 
-    if (first.type != TokenType::EndOfFile && first.line > start.line) {
-      start = {first.line, 1};
-    }
-
     if (first.type == TokenType::EndOfFile) {
       result.cleanEof = true;
       return result;
@@ -671,9 +677,9 @@ vector<string> FormatSExpLines(NodePtr node) {
 
   auto addChildAsNewLine = [&](NodePtr child) {
     vector<string> childLines = FormatSExpLines(child);
-    lines.push_back(" " + childLines[0]);
+    lines.push_back("  " + childLines[0]);
     for (size_t i = 1; i < childLines.size(); ++i) {
-      lines.push_back(" " + childLines[i]);
+      lines.push_back("  " + childLines[i]);
     }
   };
 
@@ -681,7 +687,7 @@ vector<string> FormatSExpLines(NodePtr node) {
   vector<string> firstLines = FormatSExpLines(items[0]);
   lines.push_back("( " + firstLines[0]);
   for (size_t i = 1; i < firstLines.size(); ++i) {
-    lines.push_back(" " + firstLines[i]);
+    lines.push_back("  " + firstLines[i]);
   }
 
   // Put each next item on a new line.
@@ -691,7 +697,7 @@ vector<string> FormatSExpLines(NodePtr node) {
 
   // If this is a dotted pair, print the dot and the tail.
   if (tail->type != NodeType::Nil) {
-    lines.push_back(" .");
+    lines.push_back("  .");
     addChildAsNewLine(tail);
   }
 
@@ -749,18 +755,28 @@ int main() {
         (unsigned char)trimmedFirstLine[1] == 0xBB &&
         (unsigned char)trimmedFirstLine[2] == 0xBF) {
       trimmedFirstLine = Trim(trimmedFirstLine.substr(3));
+      firstInputLine = trimmedFirstLine;
     }
 
-    if (trimmedFirstLine != "1") {
+    bool isTestNumberLine = !trimmedFirstLine.empty();
+    for (char ch : trimmedFirstLine) {
+      if (!isdigit((unsigned char)ch)) {
+        isTestNumberLine = false;
+        break;
+      }
+    }
+
+    if (!isTestNumberLine) {
       hasBufferedFirstLine = true;
     }
   } else {
     return 0;
   }
 
-  cout << "Welcome to OurScheme!" << endl;
+  cout << "Welcome to OurScheme!" << endl << endl;
 
   Parser parser(firstInputLine, hasBufferedFirstLine);
+  bool endedByExit = false;
   while (true) {
     cout << "> ";
     Parser::ReadResult result = parser.ReadTopLevelSExp();
@@ -775,17 +791,26 @@ int main() {
       if (result.error.type == ErrorType::NoMoreInput) {
         break;
       }
+      cout << endl;
       continue;
     }
 
     if (IsExitExpression(result.expression)) {
       DeleteTree(result.expression);
-      cout << "Thanks for using OurScheme!" << endl;
+      endedByExit = true;
       break;
     }
 
     PrintSExp(result.expression, 0);
+    cout << endl;
     DeleteTree(result.expression);
+  }
+
+  if (endedByExit) {
+    cout << endl;
+    cout << "Thanks for using OurScheme!";
+  } else {
+    cout << "Thanks for using OurScheme!";
   }
 
   return 0;
