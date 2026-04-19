@@ -7,7 +7,7 @@
 
 using namespace std;
 
-enum class TokenType {
+enum class Token_Type {
   LeftParen,      // "("
   RightParen,     // ")"
   Dot,            // "."
@@ -19,10 +19,10 @@ enum class TokenType {
   True,           // true
   Symbol,         // This is a normal name like abc.
   EndOfFile,      // no more input
-  NoClosingQuote  // a string forgot its last ".
+  No_Closing_Quote  // a string forgot its last ".
 };
 
-enum class NodeType {
+enum class Node_Type {
   Nil,
   True,
   Int,
@@ -32,15 +32,15 @@ enum class NodeType {
   Cons
 };
 
-enum class ErrorType {
-  UnexpectedAtomOrLeftParen,
-  UnexpectedRightParen,
-  NoClosingQuote,
-  NoMoreInput
+enum class Error_Type {
+  UnexpectedAtom_Or_LeftParen, 
+  Unexpected_RightParen,
+  No_Closing_Quote,
+  No_More_Input
 };
 
 struct Token {
-  TokenType type;
+  Token_Type type;
   string input;
   string output;
   int line;
@@ -48,27 +48,27 @@ struct Token {
 };
 
 struct Node {
-  NodeType type;
+  Node_Type type;
   string text;
   Node *left;
   Node *right;
 };
 
 struct error_message {
-  ErrorType type;
+  Error_Type type;
   string tokenText;
   int line;
   int column;
 };
 
-struct SourcePosition {
+struct line_column {
   int line;
   int column;
 };
 
 using NodePtr = Node*;
 
-NodePtr MakeNode(NodeType type, string text = "") {
+NodePtr MakeNode(Node_Type type, string text = "") {
   NodePtr node(new Node());
   node->type = type;
   node->text = text;
@@ -78,27 +78,27 @@ NodePtr MakeNode(NodeType type, string text = "") {
 }
 
 NodePtr MakeNil() {
-  return MakeNode(NodeType::Nil, "nil");
+  return MakeNode(Node_Type::Nil, "nil");
 }
 
 NodePtr MakeTrue() {
-  return MakeNode(NodeType::True, "#t");
+  return MakeNode(Node_Type::True, "#t");
 }
 
 NodePtr MakeCons(NodePtr left, NodePtr right) {
-  NodePtr node = MakeNode(NodeType::Cons);
+  NodePtr node = MakeNode(Node_Type::Cons);
   node->left = left;
   node->right = right;
   return node;
 }
 
 NodePtr MakeAtomFromToken(Token token) {
-  if (token.type == TokenType::Nil) return MakeNil();
-  if (token.type == TokenType::True) return MakeTrue();
-  if (token.type == TokenType::Int) return MakeNode(NodeType::Int, token.input);
-  if (token.type == TokenType::Float) return MakeNode(NodeType::Float, token.input);
-  if (token.type == TokenType::String) return MakeNode(NodeType::String, token.input);
-  return MakeNode(NodeType::Symbol, token.input);
+  if (token.type == Token_Type::Nil) return MakeNil();
+  if (token.type == Token_Type::True) return MakeTrue();
+  if (token.type == Token_Type::Int) return MakeNode(Node_Type::Int, token.input);
+  if (token.type == Token_Type::Float) return MakeNode(Node_Type::Float, token.input);
+  if (token.type == Token_Type::String) return MakeNode(Node_Type::String, token.input);
+  return MakeNode(Node_Type::Symbol, token.input);
 }
 //=======================================================================
 NodePtr BuildList(vector<NodePtr> items, NodePtr tail) {
@@ -119,27 +119,12 @@ bool IsPrintable(char ch) {
   return isprint((unsigned char)ch) != 0;
 }
 
-string Trim(string text) {
-  int left = 0;
-  int right = (int)text.size() - 1;
 
-  while (left <= right && isspace((unsigned char)text[left])) {
-    left++;
-  }
-
-  while (right >= left && isspace((unsigned char)text[right])) {
-    right--;
-  }
-
-  if (left > right) return "";
-  return text.substr(left, right - left + 1);
-}
-
-bool IsIntToken(string text) {
+bool IsInt(string text) {  
   if (text.empty()) return false;
 
   int index = 0;
-  if (text[index] == '+' || text[index] == '-') {
+  if (text[index] == '+' || text[index] == '-') { //+123  -456
     index++;
   }
 
@@ -154,7 +139,7 @@ bool IsIntToken(string text) {
   return true;
 }
 
-bool IsFloatToken(string text) {
+bool IsFloat(string text) {
   if (text.empty()) return false;
 
   int index = 0;
@@ -184,52 +169,46 @@ bool IsFloatToken(string text) {
 }
 
 //=======================================================================
-Token ClassifyTokenText(string text, int line, int column) {
+Token Sort_TokenType(string text, int line, int column) {
   Token token;
-  token.input = text;
-  token.output = text;
+  token.input = text;  //the original text of the token
+  token.output = text;  //final output text
   token.line = line;
   token.column = column;
 
-  if (text == ".") token.type = TokenType::Dot;
-  else if (text == "nil" || text == "#f") token.type = TokenType::Nil;
-  else if (text == "t" || text == "#t") token.type = TokenType::True;
-  else if (IsIntToken(text)) token.type = TokenType::Int;
-  else if (IsFloatToken(text)) token.type = TokenType::Float;
-  else token.type = TokenType::Symbol;
+  if (text == ".") token.type = Token_Type::Dot;
+  else if (text == "nil" || text == "#f") token.type = Token_Type::Nil;
+  else if (text == "t" || text == "#t") token.type = Token_Type::True;
+  else if (IsInt(text)) token.type = Token_Type::Int;
+  else if (IsFloat(text)) token.type = Token_Type::Float;
+  else token.type = Token_Type::Symbol;
 
   return token;
 }
 
 class Lexer {
   private:
-  string m_line;
-  string m_bufferedLine;
-  int index_line;
-  int position;
-  bool else_line;
-  bool buffered_line;
+  string Line;  //the current line being processed
+  int index_line; //the line number of the current line, starting from 1
+  int position; //the index of the next to read in Line
+  bool useful_line;
   bool end;
 
   bool ReadNextLine() {
-    if (buffered_line) {
-      m_line = m_bufferedLine;
-      buffered_line = false;
-    } else {
-      if (!getline(cin, m_line)) {
-        else_line = false;
-        end = true;
-        return false;
-      }
+
+    if (!getline(cin, Line)) {
+      useful_line = false;
+      end = true;
+      return false;
     }
 
     index_line++;
     position = 0;
-    else_line = true;
+    useful_line = true;
     return true;
   }
 
-  Token MakeSimpleToken(TokenType type, string text, int line, int column) {
+  Token MakeQuickToken(Token_Type type, string text, int line, int column) {
     Token token;
     token.type = type;
     token.input = text;
@@ -240,25 +219,23 @@ class Lexer {
   }
 
  public:
-  Lexer(string bufferedLine = "", bool hasBufferedLine = false)
+  Lexer()
   {
-    m_bufferedLine = bufferedLine;
     index_line = 0;
     position = 0;
-    else_line = false;
-    buffered_line = hasBufferedLine;
+    useful_line = false;
     end = false;
   }
 
-  SourcePosition CurrentPosition() {
-    if (else_line) {
+  line_column FindStartPlace() {
+    if (useful_line) {
       int probe = position;
-      while (probe < (int)m_line.size() &&
-             isspace((unsigned char)m_line[probe])) {
+      while (probe < (int)Line.size() &&
+             isspace((unsigned char)Line[probe])) {
         probe++;
       }
 
-      if (probe >= (int)m_line.size() || m_line[probe] == ';') {
+      if (probe >= (int)Line.size() || Line[probe] == ';') {
         return {index_line + 1, 1};
       }
 
@@ -269,57 +246,58 @@ class Lexer {
   }
 
   Token NextToken() {
-    while (true) {
-      if ((!else_line || position >= (int)m_line.size()) && !ReadNextLine()) {
-        return MakeSimpleToken(TokenType::EndOfFile, "", index_line + 1, 1);
+    while (true) {  //一直跳過 空白 / 註解 / 空行
+      if ((!useful_line || position >= (int)Line.size()) && !ReadNextLine()) { //EOF
+        return MakeQuickToken(Token_Type::EndOfFile, "", index_line + 1, 1);
       }
 
-      while (position < (int)m_line.size() &&
-             isspace((unsigned char)m_line[position])) {
+      while (position < (int)Line.size() &&
+             isspace((unsigned char)Line[position])) {
         position++;
       }
 
-      if (position >= (int)m_line.size()) {
+      if (position >= (int)Line.size()) {  //空行
         continue;
       }
 
-      if (m_line[position] == ';') {
-        position = (int)m_line.size();
+      if (Line[position] == ';') {    //dfghgf;  because ';' starts a comment, we can skip to the end of the line.
+        position = (int)Line.size();  // Skip the rest of the line as it's a comment.
         continue;
       }
 
       break;
     }
 
+    // Now we are at the start of the next token.
     int startLine = index_line;
     int startColumn = position + 1;
-    char ch = m_line[position];
+    char ch = Line[position];
 
     if (ch == '(') {
       position++;
-      return MakeSimpleToken(TokenType::LeftParen, "(", startLine, startColumn);
+      return MakeQuickToken(Token_Type::LeftParen, "(", startLine, startColumn);
     }
 
     if (ch == ')') {
       position++;
-      return MakeSimpleToken(TokenType::RightParen, ")", startLine, startColumn);
+      return MakeQuickToken(Token_Type::RightParen, ")", startLine, startColumn);
     }
 
     if (ch == '\'') {
       position++;
-      return MakeSimpleToken(TokenType::Quote, "'", startLine, startColumn);
+      return MakeQuickToken(Token_Type::Quote, "'", startLine, startColumn);
     }
 
     if (ch == '"') {
       string value;
       position++;
 
-      while (position < (int)m_line.size()) {
-        char current = m_line[position++];
+      while (position < (int)Line.size()) {
+        char current = Line[position++];
 
-        if (current == '"') {
+        if (current == '"') { //String token ends when we see the next '"'
           Token token;
-          token.type = TokenType::String;
+          token.type = Token_Type::String;
           token.input = value;
           token.output = "\"" + value + "\"";
           token.line = startLine;
@@ -327,14 +305,14 @@ class Lexer {
           return token;
         }
 
-        if (current == '\\' && position < (int)m_line.size()) {
-          char next = m_line[position++];
+        if (current == '\\' && position < (int)Line.size()) {
+          char next = Line[position++];
           if (next == 'n') value += '\n';
           else if (next == 't') value += '\t';
           else if (next == '"') value += '"';
           else if (next == '\\') value += '\\';
           else {
-            value += '\\';
+            value += current;
             value += next;
           }
         } else {
@@ -342,13 +320,13 @@ class Lexer {
         }
       }
 
-      return MakeSimpleToken(TokenType::NoClosingQuote, "", startLine,
-                             (int)m_line.size() + 1);
+      return MakeQuickToken(Token_Type::No_Closing_Quote, "", startLine,
+                             (int)Line.size() + 1);
     }
 
     string text;
-    while (position < (int)m_line.size()) {
-      char current = m_line[position];
+    while (position < (int)Line.size()) {
+      char current = Line[position];
       if (!IsPrintable(current) || IsSeparator(current)) {
         break;
       }
@@ -357,104 +335,101 @@ class Lexer {
       position++;
     }
 
-    return ClassifyTokenText(text, startLine, startColumn);
+    return Sort_TokenType(text, startLine, startColumn);
   }
 
   void DiscardRestOfLine(int line) {
-    if (else_line && index_line == line) {
-      position = (int)m_line.size();
+    if (useful_line && index_line == line) {
+      position = (int)Line.size();
     }
   }
 
-  bool IsAtCleanEof() {
-    return end;
-  }
 };
 
 class Parser {
  private:
-  Lexer m_lexer;
-  Token m_peek;
-  bool m_hasPeek;
+  Lexer lexer;
+  Token peek;
+  bool peeked = false;
 
   Token PeekToken() {
-    if (!m_hasPeek) {
-      m_peek = m_lexer.NextToken();
-      m_hasPeek = true;
+    if (!peeked) {
+      peek = lexer.NextToken(); //如果之前沒有 peek 過，就從 lexer 讀取下一個 token。
+      peeked = true;
     }
 
-    return m_peek;
+    return peek;
   }
 
-  Token ConsumeToken() {
-    Token token = PeekToken();
-    m_hasPeek = false;
+  Token Use_Token() {
+    Token token = PeekToken();  //使用 peek 的 token 作為當前 token，並將 peeked 設為 false，表示下次需要從 lexer 讀取新的 token。
+    peeked = false;
     return token;
   }
 
-  error_message NormalizeError(error_message error, SourcePosition start) {
-    if (error.type == ErrorType::NoMoreInput) {
+  error_message Right_error_message(error_message error, line_column start) {
+    if (error.type == Error_Type::No_More_Input) {
       return error;
     }
 
-    error_message normalized = error;
-    normalized.line = error.line - start.line + 1;
+    error_message result = error;
+    result.line = error.line - start.line + 1;
 
-    if (normalized.line <= 1) {
-      normalized.line = 1;
-      normalized.column = error.column - start.column + 1;
+    if (result.line <= 1) {
+      result.line = 1;
+      result.column = error.column - start.column + 1;
     }
 
-    if (normalized.column < 1) {
-      normalized.column = 1;
+    if (result.column < 1) {
+      result.column = 1;
     }
 
-    return normalized;
+    return result;
   }
 
-  error_message MakeUnexpectedAtomOrLeftParen(Token token) {
+  error_message MakeUnexpectedAtom_Or_LeftParen(Token token) {
     error_message error;
-    error.type = ErrorType::UnexpectedAtomOrLeftParen;
+    error.type = Error_Type::UnexpectedAtom_Or_LeftParen;
     error.tokenText = token.output;
     error.line = token.line;
     error.column = token.column;
     return error;
   }
 
-  error_message MakeUnexpectedRightParen(Token token) {
+  error_message MakeUnexpected_RightParen(Token token) {
     error_message error;
-    error.type = ErrorType::UnexpectedRightParen;
+    error.type = Error_Type::Unexpected_RightParen;
     error.tokenText = token.output;
     error.line = token.line;
     error.column = token.column;
     return error;
   }
 
-  error_message MakeNoClosingQuote(Token token) {
+  error_message MakeNo_Closing_Quote(Token token) {
     error_message error;
-    error.type = ErrorType::NoClosingQuote;
+    error.type = Error_Type::No_Closing_Quote;
     error.line = token.line;
     error.column = token.column;
     return error;
   }
 
-  error_message MakeNoMoreInput() {
+  error_message MakeNo_More_Input() {
     error_message error;
-    error.type = ErrorType::NoMoreInput;
+    error.type = Error_Type::No_More_Input;
     error.line = 0;
     error.column = 0;
     return error;
   } 
 
-  bool IsAtomToken(TokenType type) {
-    return type == TokenType::Int || type == TokenType::Float ||
-           type == TokenType::String || type == TokenType::Nil ||
-           type == TokenType::True || type == TokenType::Symbol;
+  bool IsAtomToken(Token_Type type) {
+    return type == Token_Type::Int || type == Token_Type::Float ||
+           type == Token_Type::String || type == Token_Type::Nil ||
+           type == Token_Type::True || type == Token_Type::Symbol;
   }
 
   NodePtr MakeQuoteNode(NodePtr quoted) {
     vector<NodePtr> items;
-    items.push_back(MakeNode(NodeType::Symbol, "quote"));
+    items.push_back(MakeNode(Node_Type::Symbol, "quote"));
     items.push_back(quoted);
     return BuildList(items, MakeNil());
   }
@@ -462,24 +437,24 @@ class Parser {
   bool ParseSExp(NodePtr &result, error_message &error) {
     Token token = PeekToken();
 
-    if (token.type == TokenType::EndOfFile) {
-      error = MakeNoMoreInput();
+    if (token.type == Token_Type::EndOfFile) {
+      error = MakeNo_More_Input();
       return false;
     }
 
-    if (token.type == TokenType::NoClosingQuote) {
-      error = MakeNoClosingQuote(token);
+    if (token.type == Token_Type::No_Closing_Quote) {
+      error = MakeNo_Closing_Quote(token);
       return false;
     }
 
     if (IsAtomToken(token.type)) {
-      ConsumeToken();
+      Use_Token();
       result = MakeAtomFromToken(token);
       return true;
     }
 
-    if (token.type == TokenType::Quote) {
-      ConsumeToken();
+    if (token.type == Token_Type::Quote) {
+      Use_Token();
       NodePtr quoted;
       if (!ParseSExp(quoted, error)) {
         return false;
@@ -489,22 +464,22 @@ class Parser {
       return true;
     }
 
-    if (token.type == TokenType::LeftParen) {
-      ConsumeToken();
+    if (token.type == Token_Type::LeftParen) {
+      Use_Token();
 
       Token next = PeekToken();
-      if (next.type == TokenType::EndOfFile) {
-        error = MakeNoMoreInput();
+      if (next.type == Token_Type::EndOfFile) {
+        error = MakeNo_More_Input();
         return false;
       }
 
-      if (next.type == TokenType::NoClosingQuote) {
-        error = MakeNoClosingQuote(next);
+      if (next.type == Token_Type::No_Closing_Quote) {
+        error = MakeNo_Closing_Quote(next);
         return false;
       }
 
-      if (next.type == TokenType::RightParen) {
-        ConsumeToken();
+      if (next.type == Token_Type::RightParen) {
+        Use_Token();
         result = MakeNil();
         return true;
       }
@@ -519,46 +494,46 @@ class Parser {
       while (true) {
         Token after = PeekToken();
 
-        if (after.type == TokenType::EndOfFile) {
-          error = MakeNoMoreInput();
+        if (after.type == Token_Type::EndOfFile) {
+          error = MakeNo_More_Input();
           return false;
         }
 
-        if (after.type == TokenType::NoClosingQuote) {
-          error = MakeNoClosingQuote(after);
+        if (after.type == Token_Type::No_Closing_Quote) {
+          error = MakeNo_Closing_Quote(after);
           return false;
         }
 
-        if (after.type == TokenType::RightParen) {
-          ConsumeToken();
+        if (after.type == Token_Type::RightParen) {
+          Use_Token();
           result = BuildList(items, MakeNil());
           return true;
         }
 
-        if (after.type == TokenType::Dot) {
-          ConsumeToken();
+        if (after.type == Token_Type::Dot) {
+          Use_Token();
           NodePtr tail;
           if (!ParseSExp(tail, error)) {
             return false;
           }
 
           Token closing = PeekToken();
-          if (closing.type == TokenType::EndOfFile) {
-            error = MakeNoMoreInput();
+          if (closing.type == Token_Type::EndOfFile) {
+            error = MakeNo_More_Input();
             return false;
           }
 
-          if (closing.type == TokenType::NoClosingQuote) {
-            error = MakeNoClosingQuote(closing);
+          if (closing.type == Token_Type::No_Closing_Quote) {
+            error = MakeNo_Closing_Quote(closing);
             return false;
           }
 
-          if (closing.type != TokenType::RightParen) {
-            error = MakeUnexpectedRightParen(closing);
+          if (closing.type != Token_Type::RightParen) {
+            error = MakeUnexpected_RightParen(closing);
             return false;
           }
 
-          ConsumeToken();
+          Use_Token();
           result = BuildList(items, tail);
           return true;
         }
@@ -571,52 +546,49 @@ class Parser {
       }
     }
 
-    error = MakeUnexpectedAtomOrLeftParen(token);
+    error = MakeUnexpectedAtom_Or_LeftParen(token);
     return false;
   }
 
  public:
-  struct ReadResult {
+  struct Result {
     bool success;
     bool cleanEof;
     NodePtr expression;
     error_message error;
   };
 
-  Parser(string bufferedLine = "", bool hasBufferedLine = false)
-  {
-    m_lexer = Lexer(bufferedLine, hasBufferedLine);
-    m_hasPeek = false;
-  }
 
-  ReadResult ReadTopLevelSExp() {
-    ReadResult result;
+
+  Result Read() {
+    Result result;
     result.success = false;
     result.cleanEof = false;
 
-    SourcePosition start = m_lexer.CurrentPosition();
+    line_column start = lexer.FindStartPlace(); //下一個 token 的位置
     Token first = PeekToken();
 
-    if (first.type == TokenType::EndOfFile) {
+    if (first.type == Token_Type::EndOfFile) {
       result.cleanEof = true;
       return result;
     }
 
-    if (first.type == TokenType::NoClosingQuote) {
-      result.error = NormalizeError(MakeNoClosingQuote(first), start);
-      m_lexer.DiscardRestOfLine(first.line);
-      m_hasPeek = false;
+    if (first.type == Token_Type::No_Closing_Quote) {
+      result.error = Right_error_message(MakeNo_Closing_Quote(first), start);
+      lexer.DiscardRestOfLine(first.line);
+      peeked = false;
       return result;
     }
 
+    //start 
     error_message error;
     NodePtr expression;
     if (!ParseSExp(expression, error)) {
-      result.error = NormalizeError(error, start);
+      result.error = Right_error_message(error, start);
       if (error.line > 0) {
-        m_lexer.DiscardRestOfLine(error.line);
+        lexer.DiscardRestOfLine(error.line);
       }
-      m_hasPeek = false;
+      peeked = false;
       return result;
     }
 
@@ -627,31 +599,19 @@ class Parser {
 };
 
 bool IsAtom(NodePtr node) {
-  return node->type != NodeType::Cons;
+  return node->type != Node_Type::Cons;
 }
 
-string EscapeString(string text) {
-  string result;
-  for (char ch : text) {
-    if (ch == '\n') result += "\\n";
-    else if (ch == '\t') result += "\\t";
-    else if (ch == '"') result += "\\\"";
-    else if (ch == '\\') result += "\\\\";
-    else result += ch;
-  }
-
-  return result;
-}
 
 string AtomToString(NodePtr node) {
-  if (node->type == NodeType::Nil) return "nil";
-  if (node->type == NodeType::True) return "#t";
-  if (node->type == NodeType::String) return "\"" + node->text + "\"";
-  if (node->type == NodeType::Int) {
+  if (node->type == Node_Type::Nil) return "nil";
+  if (node->type == Node_Type::True) return "#t";
+  if (node->type == Node_Type::String) return "\"" + node->text + "\"";
+  if (node->type == Node_Type::Int) {
     long long value = stoll(node->text);
     return to_string(value);
   }
-  if (node->type == NodeType::Float) {
+  if (node->type == Node_Type::Float) {
     double value = stod(node->text);
     ostringstream out;
     out << fixed << setprecision(3) << value;
@@ -659,9 +619,18 @@ string AtomToString(NodePtr node) {
   }
   return node->text;
 }
+vector<string> PrettyPrint(NodePtr node);
 
-vector<string> FormatSExpLines(NodePtr node) {
-  if (IsAtom(node)) {
+void AddSpace(NodePtr child, vector<string> &lines) {
+  vector<string> childLines = PrettyPrint(child);
+  lines.push_back("  " + childLines[0]);
+  for (size_t i = 1; i < childLines.size(); ++i) {
+    lines.push_back("  " + childLines[i]);
+  }
+}
+
+vector<string> PrettyPrint(NodePtr node) {
+  if (IsAtom(node)) { // If this is an atom, just return its string representation as the only line.
     return { AtomToString(node) };
   }
 
@@ -669,22 +638,15 @@ vector<string> FormatSExpLines(NodePtr node) {
 
   vector<NodePtr> items;
   NodePtr current = node;
-  while (current->type == NodeType::Cons) {
+  while (current->type == Node_Type::Cons) {
     items.push_back(current->left);
     current = current->right;
   }
   NodePtr tail = current;  // This is the tail. For a normal list, it is nil.
 
-  auto addChildAsNewLine = [&](NodePtr child) {
-    vector<string> childLines = FormatSExpLines(child);
-    lines.push_back("  " + childLines[0]);
-    for (size_t i = 1; i < childLines.size(); ++i) {
-      lines.push_back("  " + childLines[i]);
-    }
-  };
 
   // Put the first item right after "( ".
-  vector<string> firstLines = FormatSExpLines(items[0]);
+  vector<string> firstLines = PrettyPrint(items[0]);
   lines.push_back("( " + firstLines[0]);
   for (size_t i = 1; i < firstLines.size(); ++i) {
     lines.push_back("  " + firstLines[i]);
@@ -692,23 +654,24 @@ vector<string> FormatSExpLines(NodePtr node) {
 
   // Put each next item on a new line.
   for (size_t i = 1; i < items.size(); ++i) {
-    addChildAsNewLine(items[i]);
+    AddSpace(items[i], lines);
   }
 
   // If this is a dotted pair, print the dot and the tail.
-  if (tail->type != NodeType::Nil) {
+  if (tail->type != Node_Type::Nil) {
     lines.push_back("  .");
-    addChildAsNewLine(tail);
+    AddSpace(tail, lines);
   }
 
   lines.push_back(")");
   return lines;
 }
 
-void PrintSExp(NodePtr node, int indent) {
-  vector<string> lines = FormatSExpLines(node);
+
+void PrintSExp(NodePtr node) {
+  vector<string> lines = PrettyPrint(node);
   for (string &line : lines) {
-    cout << string(indent, ' ') << line << "\n";
+    cout << line << "\n"; // Print each line with the given indent.
   }
 }
 
@@ -720,88 +683,67 @@ void DeleteTree(NodePtr node) {
   delete node;
 }
 
-bool IsExitExpression(NodePtr node) {
-  if (node->type != NodeType::Cons) return false;
-  if (node->left->type != NodeType::Symbol || node->left->text != "exit") return false;
-  return node->right->type == NodeType::Nil;
+bool IsExit(NodePtr node) {  // Check (exit)
+  if (node->type != Node_Type::Cons) return false;
+  if (node->left->type != Node_Type::Symbol || node->left->text != "exit") return false;
+  return node->right->type == Node_Type::Nil;
 }
 
-void PrintError(error_message error) {
-  if (error.type == ErrorType::UnexpectedAtomOrLeftParen) {
+void Print_error_message(error_message error) {
+  if (error.type == Error_Type::UnexpectedAtom_Or_LeftParen) {
     cout << "ERROR (unexpected token) : atom or '(' expected when token at Line "
          << error.line << " Column " << error.column << " is >>"
          << error.tokenText << "<<" << endl;
-  } else if (error.type == ErrorType::UnexpectedRightParen) {
+
+  } else if (error.type == Error_Type::Unexpected_RightParen) {
     cout << "ERROR (unexpected token) : ')' expected when token at Line "
          << error.line << " Column " << error.column << " is >>"
          << error.tokenText << "<<" << endl;
-  } else if (error.type == ErrorType::NoClosingQuote) {
+         
+  } else if (error.type == Error_Type::No_Closing_Quote) {
     cout << "ERROR (no closing quote) : END-OF-LINE encountered at Line "
          << error.line << " Column " << error.column << endl;
+
   } else {
     cout << "ERROR (no more input) : END-OF-FILE encountered" << endl;
   }
+
 }
 
 int main() {
-  string firstInputLine;
-  bool hasBufferedFirstLine = false;
-
-  if (getline(cin, firstInputLine)) {
-    string trimmedFirstLine = Trim(firstInputLine);
-    if (!trimmedFirstLine.empty() &&
-        (unsigned char)trimmedFirstLine[0] == 0xEF &&
-        trimmedFirstLine.size() >= 3 &&
-        (unsigned char)trimmedFirstLine[1] == 0xBB &&
-        (unsigned char)trimmedFirstLine[2] == 0xBF) {
-      trimmedFirstLine = Trim(trimmedFirstLine.substr(3));
-      firstInputLine = trimmedFirstLine;
-    }
-
-    bool isTestNumberLine = !trimmedFirstLine.empty();
-    for (char ch : trimmedFirstLine) {
-      if (!isdigit((unsigned char)ch)) {
-        isTestNumberLine = false;
-        break;
-      }
-    }
-
-    if (!isTestNumberLine) {
-      hasBufferedFirstLine = true;
-    }
-  } else {
-    return 0;
-  }
+  string Input;
+  getline(cin, Input);
 
   cout << "Welcome to OurScheme!" << endl << endl;
 
-  Parser parser(firstInputLine, hasBufferedFirstLine);
+  Parser parser;
+  
   bool endedByExit = false;
   while (true) {
     cout << "> ";
-    Parser::ReadResult result = parser.ReadTopLevelSExp();
+    Parser::Result result = parser.Read();
 
     if (result.cleanEof) {
-      PrintError({ErrorType::NoMoreInput, "", 0, 0});
+      Print_error_message({Error_Type::No_More_Input, "", 0, 0});
       break;
     }
 
     if (!result.success) {
-      PrintError(result.error);
-      if (result.error.type == ErrorType::NoMoreInput) {
+      Print_error_message(result.error);
+      if (result.error.type == Error_Type::No_More_Input) {
         break;
       }
       cout << endl;
       continue;
     }
 
-    if (IsExitExpression(result.expression)) {
+    if (IsExit(result.expression)) {
       DeleteTree(result.expression);
       endedByExit = true;
       break;
     }
 
-    PrintSExp(result.expression, 0);
+    PrintSExp(result.expression);
     cout << endl;
     DeleteTree(result.expression);
   }
