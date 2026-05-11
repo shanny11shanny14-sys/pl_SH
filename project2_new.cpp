@@ -96,12 +96,9 @@ using Node = Node_data*;
 
 //forward declaration
 class Environment;
-vector<string> PrettyPrint(Node node);
-EvalError MakeEvalError(EvalError_Type type, string name = "", Node node = NULL);
-Node Eval(Node node, Environment &env, bool topLevel = false);
-
-
+Node EvalEvalEval(Node node, Environment & env_setting, bool topLayer = false);
 bool NodeEqual(Node a, Node b);
+
 Node MakeNode(Node_Type type, string text = "") {
   Node node(new Node_data());
   node->type = type;
@@ -150,17 +147,12 @@ Node BuildList(vector<Node> items, Node tail) {
   }
 
   return result;
-}
+} 
 
 bool IsSeparator(char ch) {
-  return isspace((unsigned char)ch) || ch == '(' || ch == ')' ||
+  return isspace( ch) || ch == '(' || ch == ')' ||
          ch == '\'' || ch == '"' || ch == ';';
 }
-
-bool IsPrintable(char ch) {
-  return isprint((unsigned char)ch) != 0;
-}
-
 
 bool IsInt(string text) {
   if (text.empty()) return false;
@@ -173,7 +165,7 @@ bool IsInt(string text) {
   if (index >= (int)text.size()) return false;
 
   for (int i = index; i < (int)text.size(); ++i) {
-    if (!isdigit((unsigned char)text[i])) {
+    if (!isdigit( text[i])) {
       return false;
     }
   }
@@ -198,7 +190,7 @@ bool IsFloat(string text) {
     if (ch == '.') {
       dotCount++;
       if (dotCount > 1) return false;
-    } else if (isdigit((unsigned char)ch)) {
+    } else if (isdigit( ch)) {
       digitCount++;
     } else {
       return false;
@@ -222,7 +214,7 @@ Token Sort_TokenType(string text, int line, int column) {
   else if (text == "t" || text == "#t") token.type = Token_Type::True;
   else if (IsInt(text)) token.type = Token_Type::Int;
   else if (IsFloat(text)) token.type = Token_Type::Float;
-  else token.type = Token_Type::Symbol;
+  else token.type = Token_Type::Symbol;//abc 
 
   return token;
 }
@@ -260,17 +252,19 @@ class Lexer {
 
  public:
   Lexer() {
-    index_line = 0;
+    index_line = 0; //index_line 是目前讀到的行數
+    //position 是目前在這行的哪個位置
     position = 0;
-    useful_line = false;
-    end = false;
+    useful_line = false;    //useful_line 表示目前這行是否有用(如果這行是空行或者只有註解就沒有用)
+    end = false;    //end 表示是否已經讀到檔案結尾
+
   }
 
   line_column FindStartPlace() {
     if (useful_line) {
       int probe = position;
       while (probe < (int)Line.size() &&
-             isspace((unsigned char)Line[probe])) {
+             isspace( Line[probe])) {
         probe++;
       }
 
@@ -278,37 +272,41 @@ class Lexer {
         return {index_line + 1, 1};
       }
 
-      return {index_line, position + 1};
+      return {index_line, position + 1}; //????
+      /*debug: 這裡應該是 probe + 1 而不是 position + 1,
+        因為 position 是指向第一個非空白字元的下一個位置,
+        而 probe 是指向第一個非空白字元的位置
+      */
     }
 
     return {index_line + 1, 1};
   }
 
   Token NextToken() {
-    while (true) {
+    while (true) {//ReadNextLine讀取下一行
       if ((!useful_line || position >= (int)Line.size()) && !ReadNextLine()) {
         return MakeQuickToken(Token_Type::EndOfFile, "", index_line + 1, 1);
       }
 
       while (position < (int)Line.size() &&
-             isspace((unsigned char)Line[position])) {
+             isspace( Line[position])) {
         position++;
       }
 
-      if (position >= (int)Line.size()) {
+      if (position >= (int)Line.size()) {//如果這行沒有東西了,就繼續讀下一行
         continue;
       }
 
-      if (Line[position] == ';') {
+      if (Line[position] == ';') {//如果這行剩下的東西是註解了,就繼續讀下一行
         position = (int)Line.size();
         continue;
       }
 
-      break;
+      break; //如果這行還有東西可以讀,就跳出 while 迴圈,準備讀 token
     }
 
     int startLine = index_line;
-    int startColumn = position + 1;
+    int startColumn = position + 1; 
     char ch = Line[position];
 
     if (ch == '(') {
@@ -343,12 +341,14 @@ class Lexer {
           return token;
         }
 
-        if (current == '\\' && position < (int)Line.size()) {
+        if (current == '\\' && position < (int)Line.size()) {//"hello \"world\""
+          //遇到一個 '\' 就要看下一個字是什麼,如果是 n 就換成換行符號,如果是 t 就換成 tab 符號
+          //如果是 " 就換成 ",如果是 \ 就換成 \,其他的就把 '\' 和下一個字都加到 value 裡面
           char next = Line[position++];
           if (next == 'n') value += '\n';
           else if (next == 't') value += '\t';
-          else if (next == '"') value += '"';
-          else if (next == '\\') value += '\\';
+          else if (next == '"') value += '"';//意思是如果用户输入了 \" 就表示他们想在字符串里输入一个 " 字符,所以我们要把它转换成一个 " 字符
+          else if (next == '\\') value += '\\';//如果是 '\' 就換成 '\',注意這裡要加兩個 '\' 才能表示一個 '\' 字元
           else {
             value += '\\';
             value += next;
@@ -363,9 +363,9 @@ class Lexer {
     }
 
     string text;
-    while (position < (int)Line.size()) {
+    while (position < (int)Line.size()) {//'abc  abc 是 一個 token,當我遇到空白或者分隔符號就表示這個 token 結束了
       char current = Line[position];
-      if (!IsPrintable(current) || IsSeparator(current)) {
+      if (isprint( current) == 0|| IsSeparator(current)) { //當我遇到不能印出的字元就break,當我遇到分隔符號也break
         break;
       }
 
@@ -373,13 +373,12 @@ class Lexer {
       position++;
     }
 
-    return Sort_TokenType(text, startLine, startColumn);
+    return Sort_TokenType(text, startLine, startColumn);//
   }
 
-  void DiscardRestOfLine(int line) {
-    if (useful_line && index_line == line) {
+  void Trash(int line) {
+    if (useful_line && index_line == line) 
       position = (int)Line.size();
-    }
   }
 };
 
@@ -388,6 +387,7 @@ class Parser {
   Lexer lexer;
   Token peek;
   bool peeked;
+  //是否使用過 peek 的 token 了,如果 peeked 是 false 就表示 peek 裡面的 token 還沒有被使用過
 
   Token PeekToken() {
     if (!peeked) {
@@ -410,7 +410,7 @@ class Parser {
     }
 
     token_error_message normalized = error;
-    normalized.line = error.line - start.line + 1;
+    normalized.line = error.line - start.line + 1;//
 
     if (normalized.line <= 1) {
       normalized.line = 1;
@@ -471,7 +471,8 @@ class Parser {
     return BuildList(items, MakeNil());
   }
 
-  bool ParseSExp(Node &result, token_error_message &error) {
+  bool ParseSExp(Node &result, token_error_message &error) { 
+    //return true 代表成功組成文法樹, result 就是組成的文法樹; return false 代表失敗, error 就是失敗的錯誤訊息
     Token token = PeekToken();
 
     if (token.type == Token_Type::EndOfFile) {
@@ -503,7 +504,7 @@ class Parser {
 
     if (token.type == Token_Type::LeftParen) {
       Use_Token();
-
+ 
       Token next = PeekToken();
       if (next.type == Token_Type::EndOfFile) {
         error = MakeNo_More_Input();
@@ -521,9 +522,10 @@ class Parser {
         return true;
       }
 
+      
       vector<Node> items;
       Node first;
-      if (!ParseSExp(first, error)) {
+      if (!ParseSExp(first, error)) {//如果不是 ()，那 list 裡面一定至少有一個元素
         return false;
       }
       items.push_back(first);
@@ -571,7 +573,7 @@ class Parser {
           }
 
           Use_Token();
-          result = BuildList(items, tail);
+          result = BuildList(items, tail);//dotted pair
           return true;
         }
 
@@ -591,7 +593,7 @@ class Parser {
   struct Result {
     bool success;
     bool cleanEof;
-    Node expression;
+    Node expression; //如果 success 是 true, expression 就是成功解析出来的表达式;如果 success 是 false, error 就是解析失败的错误信息
     token_error_message error;
   };
 
@@ -615,7 +617,7 @@ class Parser {
 
     if (first.type == Token_Type::No_Closing_Quote) {
       result.error = Right_token_error_message(MakeNo_Closing_Quote(first), start);
-      lexer.DiscardRestOfLine(first.line);
+      lexer.Trash(first.line);
       peeked = false;
       return result;
     }
@@ -625,7 +627,7 @@ class Parser {
     if (!ParseSExp(expression, error)) {
       result.error = Right_token_error_message(error, start);
       if (error.line > 0) {
-        lexer.DiscardRestOfLine(error.line);
+        lexer.Trash(error.line);
       }
       peeked = false;
       return result;
@@ -649,7 +651,7 @@ bool IsFalseValue(Node node) {
   return node->type == Node_Type::Nil;
 }
 
-bool IsProperList(Node node) {
+bool IsNormalList(Node node) {
   Node current = node;
   while (current->type == Node_Type::Cons) {
     current = current->right;
@@ -670,16 +672,12 @@ vector<Node> ListToVector(Node node) { //把列表转换成vector
 }
 
 double GetDoubleValue(Node node) {
-  if (node->type == Node_Type::Int) {
-    return (double)stoll(node->text);
-  }
+  if (node->type == Node_Type::Int) return (double)stoll(node->text);
 
   return stod(node->text);//把字符串转换成双精度浮点数
 }
 
-long long GetIntValue(Node node) {
-  return stoll(node->text); //把字符串转换成长整数
-}
+
 
 string AtomToString(Node node) {
   if (node->type == Node_Type::Nil) return "nil";
@@ -704,7 +702,7 @@ string AtomToString(Node node) {
 
 vector<string> PrettyPrint(Node node);
 
-void AddChildAsNewLine(Node child, vector<string> &lines) {
+void NewLine(Node child, vector<string> &lines) {
   vector<string> childLines = PrettyPrint(child);
   lines.push_back("  " + childLines[0]);
   for (size_t i = 1; i < childLines.size(); ++i) {
@@ -738,13 +736,13 @@ vector<string> PrettyPrint(Node node) {
 
   //處理第二個元素以後的元素,每個元素都放在新的一行,並且在前面加上兩個空格
   for (size_t i = 1; i < items.size(); ++i) {
-    AddChildAsNewLine(items[i], lines);
+    NewLine(items[i], lines);
   }
 
   //如果 tail 不是 nil, 就在倒数第二行加上 " .", 然后把 tail 也放在新的一行
   if (tail->type != Node_Type::Nil) {
     lines.push_back("  .");
-    AddChildAsNewLine(tail, lines);
+    NewLine(tail, lines);
   }
 
   lines.push_back(")");
@@ -760,7 +758,7 @@ void PrintSExp(Node node) {// 把樹狀資料 node 轉成老師要求的格式�
 
 bool IsExit(Node node) {
   if (node->type != Node_Type::Cons) return false;
-  if (!IsProperList(node)) return false;
+  if (!IsNormalList(node)) return false;
 
   vector<Node> items = ListToVector(node);
   if (items.size() != 1) return false;
@@ -794,7 +792,7 @@ void Print_token_error_message(token_error_message error) {//打印token error
 
 class Environment {
  private:
-  map<string, Node> original;
+  map<string, Node> original_setting;
   map<string, Node> user_defined;
 
  public:
@@ -809,18 +807,18 @@ class Environment {
     };
 
     for (string name : names) {
-      original[name] = MakeProcedure(name);
+      original_setting[name] = MakeProcedure(name);
     }
   }
 
-  Node Lookup(string name) {
+  Node Search(string name) {
     if (user_defined.count(name)) return user_defined[name];
-    if (original.count(name)) return original[name];
+    if (original_setting.count(name)) return original_setting[name];
     return NULL;
   }
 
   bool IsPrimitiveName(string name) {
-    return original.count(name) > 0;
+    return original_setting.count(name) > 0;
   }
 
   void Define(string name, Node value) {
@@ -841,14 +839,8 @@ EvalError MakeEvalError(EvalError_Type type, string name = "", Node node = NULL)
 }
 
 
-void EnsureProperListCall(Node node) {
-  if (!IsProperList(node)) {
-    throw MakeEvalError(EvalError_Type::NonList, "", node);
-  }
-}
-
-Node EvalSymbol(Node node, Environment &env) {//把符号转换成它的值,如果符号没有绑定值,就报错
-  Node value = env.Lookup(node->text);
+Node EvalSymbol(Node node, Environment & env_setting) {//把符号转换成它的值,如果符号没有绑定值,就报错
+  Node value = env_setting.Search(node->text);
   if (value == NULL) {
     throw MakeEvalError(EvalError_Type::UnboundSymbol, node->text, node);
   }
@@ -856,27 +848,15 @@ Node EvalSymbol(Node node, Environment &env) {//把符号转换成它的值,如�
   return value;
 }
 
-Node MakeNumericNode(double value, bool useFloat) {
-  if (!useFloat) {
-    return MakeNode(Node_Type::Int, to_string((long long)value));
-  }
 
-  ostringstream out;
-  out << fixed << setprecision(15) << value;
-  string text = out.str();
-  while (!text.empty() && text.back() == '0') text.pop_back();
-  if (!text.empty() && text.back() == '.') text.push_back('0');
-  return MakeNode(Node_Type::Float, text);
-}
-
-Node MakeBooleanNode(bool value) {
+Node BooleanNode(bool value) {
   return value ? MakeTrue() : MakeNil();
 }
 
-Node EvalSequence( vector<Node> &items, int startIndex, Environment &env) {
+Node EvalSequence( vector<Node> &items, int startIndex, Environment & env_setting) {
   Node result = MakeNil();
   for (int i = startIndex; i < (int)items.size(); ++i) {
-    result = Eval(items[i], env, false);
+    result = EvalEvalEval(items[i], env_setting, false);
   }
 
   return result;
@@ -890,50 +870,50 @@ Node EvalQuote( vector<Node> &items, Node whole) {
   return items[1];
 }
 
-Node EvalDefine( vector<Node> &items, Node whole, Environment &env) {
+Node EvalDefine( vector<Node> &items, Node whole, Environment & env_setting) {
   if ((int)items.size() != 3 || items[1]->type != Node_Type::Symbol ||
-      env.IsPrimitiveName(items[1]->text)) {
+      env_setting.IsPrimitiveName(items[1]->text)) {
     throw MakeEvalError(EvalError_Type::DefineFormat, "", whole);
   }
 
-  Node value = Eval(items[2], env, false);
-  env.Define(items[1]->text, value);
+  Node value = EvalEvalEval(items[2], env_setting, false);
+  env_setting.Define(items[1]->text, value);
   return MakeMessage(items[1]->text + " defined");
 }
 
-Node EvalIf( vector<Node> &items, Node whole, Environment &env) {
+Node EvalIf( vector<Node> &items, Node whole, Environment & env_setting) {
   if ((int)items.size() != 3 && (int)items.size() != 4) {
     throw MakeEvalError(EvalError_Type::Wrong_NumberOfArguments, "if", whole);
   }
 
-  Node test = Eval(items[1], env, false);
+  Node test = EvalEvalEval(items[1], env_setting, false);
   if (!IsFalseValue(test)) {
-    return Eval(items[2], env, false);
+    return EvalEvalEval(items[2], env_setting, false);
   }
 
   if ((int)items.size() == 4) {
-    return Eval(items[3], env, false);
+    return EvalEvalEval(items[3], env_setting, false);
   }
 
   throw MakeEvalError(EvalError_Type::NoReturnValue, "", whole);
 }
 
-Node EvalBegin( vector<Node> &items, Node whole, Environment &env) {
+Node EvalBegin( vector<Node> &items, Node whole, Environment & env_setting) {
   if ((int)items.size() < 2) {
     throw MakeEvalError(EvalError_Type::Wrong_NumberOfArguments, "begin", whole);
   }
 
-  return EvalSequence(items, 1, env);
+  return EvalSequence(items, 1, env_setting);
 }
 
-Node EvalAnd( vector<Node> &items, Node whole, Environment &env) {
+Node EvalAnd( vector<Node> &items, Node whole, Environment & env_setting) {
   if ((int)items.size() < 3) {
     throw MakeEvalError(EvalError_Type::Wrong_NumberOfArguments, "and", whole);
   }
 
   Node result = MakeTrue();
   for (int i = 1; i < (int)items.size(); ++i) {
-    result = Eval(items[i], env);
+    result = EvalEvalEval(items[i], env_setting, false);
     if (IsFalseValue(result)) {
       return result;
     }
@@ -942,14 +922,14 @@ Node EvalAnd( vector<Node> &items, Node whole, Environment &env) {
   return result;
 }
 
-Node EvalOr( vector<Node> &items, Node whole, Environment &env) {
+Node EvalOr( vector<Node> &items, Node whole, Environment & env_setting) {
   if ((int)items.size() < 3) {
     throw MakeEvalError(EvalError_Type::Wrong_NumberOfArguments, "or", whole);
   }
 
   Node result = MakeNil();
   for (int i = 1; i < (int)items.size(); ++i) {
-    result = Eval(items[i], env);
+    result = EvalEvalEval(items[i], env_setting);
     if (!IsFalseValue(result)) {
       return result;
     }
@@ -958,14 +938,14 @@ Node EvalOr( vector<Node> &items, Node whole, Environment &env) {
   return result;
 }
 
-Node EvalCond( vector<Node> &items, Node whole, Environment &env) {
+Node EvalCond( vector<Node> &items, Node whole, Environment & env_setting) {
   if ((int)items.size() < 2) {
     throw MakeEvalError(EvalError_Type::CondFormat, "", whole);
   }
 
   for (int i = 1; i < (int)items.size(); ++i) {
     Node IF = items[i];  //條件區塊
-    if (IF->type == Node_Type::Nil || !IsProperList(IF)) {
+    if (IF->type == Node_Type::Nil || !IsNormalList(IF)) {
       throw MakeEvalError(EvalError_Type::CondFormat, "", whole);
     }
 
@@ -986,9 +966,9 @@ Node EvalCond( vector<Node> &items, Node whole, Environment &env) {
 
     Node testValue;
     if (isElseIF) testValue = MakeTrue();
-    else testValue = Eval(parts[0], env, false);
+    else testValue = EvalEvalEval(parts[0], env_setting, false);
 
-    if (!IsFalseValue(testValue))  return EvalSequence(parts, 1, env);
+    if (!IsFalseValue(testValue))  return EvalSequence(parts, 1, env_setting);
     
   }
 
@@ -1020,11 +1000,11 @@ void Type_String(string name, Node value) {
 }
 
 
-void Valid(string name, int countCount, Node whole, bool topLevel) {
-  if (name == "clean-environment" && !topLevel) 
+void Valid(string name, int countCount, Node whole, bool topLayer) {
+  if (name == "clean-environment" && !topLayer) 
     throw MakeEvalError(EvalError_Type::LevelOfCleanEnvironment, "", whole);
   
-  if (name == "exit" && !topLevel) 
+  if (name == "exit" && !topLayer) 
     throw MakeEvalError(EvalError_Type::LevelOfExit, "", whole);
   
   if (name == "clean-environment" || name == "exit") {
@@ -1101,16 +1081,16 @@ void Valid(string name, int countCount, Node whole, bool topLevel) {
   }
 }
 
-Node GO_Cons( vector<Node> &counts) {
+Node Belong_Cons( vector<Node> &counts) {
   Counts_size("cons", counts, 2);
   return MakeCons(counts[0], counts[1]);
 }
 
-Node GO_List( vector<Node> &counts) {
+Node Belong_List( vector<Node> &counts) {
   return BuildList(counts, MakeNil());
 }
 
-Node GO_Car( vector<Node> &counts) {
+Node Belong_Car( vector<Node> &counts) {
   Counts_size("car", counts, 1);
   if (counts[0]->type != Node_Type::Cons) {
     throw MakeEvalError(EvalError_Type::Wrong_ArgumentType, "car", counts[0]);
@@ -1119,7 +1099,7 @@ Node GO_Car( vector<Node> &counts) {
   return counts[0]->left;
 }
 
-Node GO_Cdr( vector<Node> &counts) {
+Node Belong_Cdr( vector<Node> &counts) {
   Counts_size("cdr", counts, 1);
   if (counts[0]->type != Node_Type::Cons) {
     throw MakeEvalError(EvalError_Type::Wrong_ArgumentType, "cdr", counts[0]);
@@ -1128,22 +1108,22 @@ Node GO_Cdr( vector<Node> &counts) {
   return counts[0]->right;
 }
 
-Node GO_Predicate(string name,  vector<Node> &counts) {
+Node Belong_Predicate(string name,  vector<Node> &counts) {
   Counts_size(name, counts, 1);
   Node value = counts[0];
 
-  if (name == "atom?") return MakeBooleanNode(IsAtom(value));
-  if (name == "pair?") return MakeBooleanNode(value->type == Node_Type::Cons);
-  if (name == "list?") return MakeBooleanNode(value->type == Node_Type::Nil || IsProperList(value));
-  if (name == "null?") return MakeBooleanNode(value->type == Node_Type::Nil);
-  if (name == "integer?") return MakeBooleanNode(value->type == Node_Type::Int);
-  if (name == "real?" || name == "number?") return MakeBooleanNode(IsNumber(value));
-  if (name == "string?") return MakeBooleanNode(value->type == Node_Type::String);
-  if (name == "boolean?") return MakeBooleanNode(value->type == Node_Type::Nil || value->type == Node_Type::True);
-  return MakeBooleanNode(value->type == Node_Type::Symbol);
+  if (name == "atom?") return BooleanNode(IsAtom(value));
+  if (name == "pair?") return BooleanNode(value->type == Node_Type::Cons);
+  if (name == "list?") return BooleanNode(value->type == Node_Type::Nil || IsNormalList(value));
+  if (name == "null?") return BooleanNode(value->type == Node_Type::Nil);
+  if (name == "integer?") return BooleanNode(value->type == Node_Type::Int);
+  if (name == "real?" || name == "number?") return BooleanNode(IsNumber(value));
+  if (name == "string?") return BooleanNode(value->type == Node_Type::String);
+  if (name == "boolean?") return BooleanNode(value->type == Node_Type::Nil || value->type == Node_Type::True);
+  return BooleanNode(value->type == Node_Type::Symbol);
 }
 
-Node GO_AddSubMulDiv(string operation,  vector<Node> &counts) { 
+Node Belong_AddSubMulDiv(string operation,  vector<Node> &counts) { 
   CountsSize_ATLeast(operation, counts, 2);
   bool hasFloat = false;
   for (Node count : counts) {
@@ -1154,7 +1134,7 @@ Node GO_AddSubMulDiv(string operation,  vector<Node> &counts) {
   if (operation == "+") {
     if (!hasFloat) {
       long long total = 0;
-      for (Node count : counts) total += GetIntValue(count);
+      for (Node count : counts) total += stoll(count->text);
       return MakeNode(Node_Type::Int, to_string(total));
     }
 
@@ -1165,8 +1145,8 @@ Node GO_AddSubMulDiv(string operation,  vector<Node> &counts) {
 
   if (operation == "-") {
     if (!hasFloat) {
-      long long total = GetIntValue(counts[0]);
-      for (int i = 1; i < (int)counts.size(); ++i) total -= GetIntValue(counts[i]);
+      long long total = stoll(counts[0]->text);
+      for (int i = 1; i < (int)counts.size(); ++i) total -= stoll(counts[i]->text);
       return MakeNode(Node_Type::Int, to_string(total));
     }
 
@@ -1178,7 +1158,7 @@ Node GO_AddSubMulDiv(string operation,  vector<Node> &counts) {
   if (operation == "*") {
     if (!hasFloat) {
       long long total = 1;
-      for (Node count : counts) total *= GetIntValue(count);
+      for (Node count : counts) total *= stoll(count->text);
       return MakeNode(Node_Type::Int, to_string(total));
     }
 
@@ -1190,17 +1170,17 @@ Node GO_AddSubMulDiv(string operation,  vector<Node> &counts) {
   //operation == "/"
 
   for (int i = 1; i < (int)counts.size(); ++i) {
-    if ((counts[i]->type == Node_Type::Int && GetIntValue(counts[i]) == 0) ||
-        (counts[i]->type == Node_Type::Float && fabs(GetDoubleValue(counts[i])) < 1e-12)) {  
+    if ((counts[i]->type == Node_Type::Int && stoll(counts[i]->text) == 0) ||
+        (counts[i]->type == Node_Type::Float && fabs(GetDoubleValue(counts[i])) <  0.0001)) {  
           //判断除数是否为0,fabs()函数返回一个数的绝对值
-          //less than 1e-12 means it's close enough to zero to be considered zero
+          //less than 0 means it's close enough to zero to be considered zero
       throw MakeEvalError(EvalError_Type::DivisionByZero, "/", NULL);
     }
   }
   
   if (!hasFloat) {
-    long long total = GetIntValue(counts[0]);
-    for (int i = 1; i < (int)counts.size(); ++i) total /= GetIntValue(counts[i]);
+    long long total = stoll(counts[0]->text);
+    for (int i = 1; i < (int)counts.size(); ++i) total /= stoll(counts[i]->text);
     return MakeNode(Node_Type::Int, to_string(total));
   }
 
@@ -1209,12 +1189,12 @@ Node GO_AddSubMulDiv(string operation,  vector<Node> &counts) {
   return MakeNode(Node_Type::Float, to_string(total));
 }
 
-Node GO_Not( vector<Node> &counts) {
+Node Belong_Not( vector<Node> &counts) {
   Counts_size("not", counts, 1);
-  return MakeBooleanNode(IsFalseValue(counts[0]));
+  return BooleanNode(IsFalseValue(counts[0]));
 }
 
-Node GO_NumericCompare(string name,  vector<Node> &counts) {
+Node Belong_NumCompare(string name,  vector<Node> &counts) {//
   CountsSize_ATLeast(name, counts, 2);
   for (Node count : counts) IsNumber(name, count);
 
@@ -1227,7 +1207,7 @@ Node GO_NumericCompare(string name,  vector<Node> &counts) {
     else if (name == ">=") ok = left >= right;
     else if (name == "<") ok = left < right;
     else if (name == "<=") ok = left <= right;
-    else ok = fabs(left - right) < 1e-12;
+    else ok = fabs(left - right) <  0.0001;
 
     if (!ok) return MakeNil();
   }
@@ -1235,7 +1215,7 @@ Node GO_NumericCompare(string name,  vector<Node> &counts) {
   return MakeTrue();
 }
 
-Node GO_StringAppend( vector<Node> &counts) {
+Node Belong_StringAppend( vector<Node> &counts) {
   CountsSize_ATLeast("string-append", counts, 2);
   string result;
   for (Node count : counts) {
@@ -1246,7 +1226,7 @@ Node GO_StringAppend( vector<Node> &counts) {
   return MakeNode(Node_Type::String, result);
 }
 
-Node GO_StringCompare(string name,  vector<Node> &counts) {
+Node Belong_StringCompare(string name,  vector<Node> &counts) {
   CountsSize_ATLeast(name, counts, 2);
   for (Node count : counts) Type_String(name, count);
 
@@ -1255,7 +1235,7 @@ Node GO_StringCompare(string name,  vector<Node> &counts) {
     string right = counts[i + 1]->text;
     bool ok = false;
 
-    if (name == "string>?") ok = left > right;
+    if (name == "string>?") ok = left > right;  //choose one comparer based on the name
     else if (name == "string<?") ok = left < right;
     else ok = left == right;
 
@@ -1265,14 +1245,13 @@ Node GO_StringCompare(string name,  vector<Node> &counts) {
   return MakeTrue();
 }
 
-bool NodeEqv(Node a, Node b) {
+bool NodeEqv(Node a, Node b) {//比較數值是不是一樣,如果是字符串或者 cons 就直接 false
   if (a == b) return true;
-  if (a->type == Node_Type::String || b->type == Node_Type::String) return false;
-  if (a->type == Node_Type::Cons || b->type == Node_Type::Cons) return false;
 
-  if (IsNumber(a) && IsNumber(b)) {
-    return fabs(GetDoubleValue(a) - GetDoubleValue(b)) < 1e-12;
-  }
+  if (a->type == Node_Type::String || b->type == Node_Type::String ||
+      a->type == Node_Type::Cons || b->type == Node_Type::Cons) return false;
+  
+  if (IsNumber(a) && IsNumber(b)) return fabs(GetDoubleValue(a) - GetDoubleValue(b)) <  0.0001;
 
   if (a->type != b->type) return false;
   return a->text == b->text;
@@ -1281,7 +1260,7 @@ bool NodeEqv(Node a, Node b) {
 bool NodeEqual(Node a, Node b) {
   if (a == b) return true;
   if (IsNumber(a) && IsNumber(b)) {
-    return fabs(GetDoubleValue(a) - GetDoubleValue(b)) < 1e-12;
+    return fabs(GetDoubleValue(a) - GetDoubleValue(b)) <  0.0001; //fabs()函数返回一个数的绝对值,0.0001是因為浮點數的誤差
   }
 
   if (a->type != b->type) return false;
@@ -1292,40 +1271,42 @@ bool NodeEqual(Node a, Node b) {
   return a->text == b->text;
 }
 
-Node GO_Equality(string name,  vector<Node> &counts) {
+Node Belong_Equality(string name, vector<Node> &counts) {
   Counts_size(name, counts, 2);
-  if (name == "eqv?") return MakeBooleanNode(NodeEqv(counts[0], counts[1]));
-  return MakeBooleanNode(NodeEqual(counts[0], counts[1]));
+  if (name == "eqv?") return BooleanNode(NodeEqv(counts[0], counts[1]));
+  return BooleanNode(NodeEqual(counts[0], counts[1]));
 }
 
-Node GO_Procedure(string name,  vector<Node> &counts, Node whole, //GO_Procedure函数根据名字调用对应的函数，并传入参数列表counts和环境env
-                       Environment &env) {
-  if (name == "cons") return GO_Cons(counts);
-  if (name == "list") return GO_List(counts);
-  if (name == "car") return GO_Car(counts);
-  if (name == "cdr") return GO_Cdr(counts);
+Node Which_Procedure(string name,  vector<Node> &counts, Node whole, 
+                       Environment & env_setting) { //根据 procedure 的名字来判断是哪个函数,然后把参数传入對應的函數計算結果
+  if (name == "cons") return Belong_Cons(counts);
+  if (name == "list") return Belong_List(counts);
+  if (name == "car") return Belong_Car(counts);
+  if (name == "cdr") return Belong_Cdr(counts);
   if (name == "atom?" || name == "pair?" || name == "list?" || name == "null?" ||
       name == "integer?" || name == "real?" || name == "number?" ||
       name == "string?" || name == "boolean?" || name == "symbol?") {
-    return GO_Predicate(name, counts);
+    return Belong_Predicate(name, counts);
   }
-  if (name == "+" || name == "-" || name == "*" || name == "/") {
-    return GO_AddSubMulDiv(name, counts);
-  }
-  if (name == "not") return GO_Not(counts);
-  if (name == ">" || name == ">=" || name == "<" || name == "<=" || name == "=") {
-    return GO_NumericCompare(name, counts);
-  }
-  if (name == "string-append") return GO_StringAppend(counts);
-  if (name == "string>?" || name == "string<?" || name == "string=?") {
-    return GO_StringCompare(name, counts);
-  }
-  if (name == "eqv?" || name == "equal?") return GO_Equality(name, counts);
+  if (name == "+" || name == "-" || name == "*" || name == "/")  
+    return Belong_AddSubMulDiv(name, counts);
+  
+  if (name == "not") return Belong_Not(counts);
+  if (name == ">" || name == ">=" || name == "<" || name == "<=" || name == "=") 
+    return Belong_NumCompare(name, counts);
+  
+  if (name == "string-append") return Belong_StringAppend(counts);
+  if (name == "string>?" || name == "string<?" || name == "string=?") 
+    return Belong_StringCompare(name, counts);
+  
+  if (name == "eqv?" || name == "equal?") return Belong_Equality(name, counts);
+
   if (name == "clean-environment") {
     Counts_size("clean-environment", counts, 0);
-    env.ClearUserDefinitions();
+    env_setting.ClearUserDefinitions();
     return MakeMessage("environment cleaned");
   }
+
   if (name == "exit") {
     Counts_size("exit", counts, 0);
     return MakeProcedure("exit");
@@ -1335,50 +1316,50 @@ Node GO_Procedure(string name,  vector<Node> &counts, Node whole, //GO_Procedure
                       AtomToString(MakeProcedure(name)), whole);
 }
 
-Node Eval(Node node, Environment &env, bool topLevel) {
+Node EvalEvalEval(Node node, Environment & env_setting, bool topLayer) {
+   //如果是原子节点，直接返回
   if (node->type == Node_Type::Nil || node->type == Node_Type::True ||
       node->type == Node_Type::Int || node->type == Node_Type::Float ||
       node->type == Node_Type::String || node->type == Node_Type::Procedure ||
-      node->type == Node_Type::Message) {//如果是原子节点，直接返回
-    return node;
-  }
+      node->type == Node_Type::Message) return node; //如果是原子节点，直接返回,因为原子节点本身就是值,不需要再计算了
 
-  if (node->type == Node_Type::Symbol) {
-    return EvalSymbol(node, env);
-  }
-
-  EnsureProperListCall(node);
-  vector<Node> items = ListToVector(node);
+  //只有atom是符号才需要查环境变量 ex: (define x 10) 然後的 (+ x 5) x 就是一个符号,需要查环境变量才能得到它的值
+  if (node->type == Node_Type::Symbol)  return EvalSymbol(node, env_setting);
+  
+  if (!IsNormalList(node)) throw MakeEvalError(EvalError_Type::NonList, "", node);
+  
+  vector<Node> items = ListToVector(node); //把列表转换成vector
   if (items.empty()) return MakeNil();
 
-  if (items[0]->type == Node_Type::Symbol) {
+  //如果列表的第一个元素是符号,就根据符号的名字来判断是哪个特殊形式
+  if (items[0]->type == Node_Type::Symbol) { 
     string name = items[0]->text;
-    if (name == "define" && !topLevel) {
-      throw MakeEvalError(EvalError_Type::LevelOfDefine, "", node);
-    }
+    if (name == "define" && !topLayer) throw MakeEvalError(EvalError_Type::LevelOfDefine, "", node);
+    
     if (name == "quote") return EvalQuote(items, node);
-    if (name == "define") return EvalDefine(items, node, env);
-    if (name == "if") return EvalIf(items, node, env);
-    if (name == "cond") return EvalCond(items, node, env);
-    if (name == "begin") return EvalBegin(items, node, env);
-    if (name == "and") return EvalAnd(items, node, env);
-    if (name == "or") return EvalOr(items, node, env);
+    if (name == "define") return EvalDefine(items, node, env_setting);
+    if (name == "if") return EvalIf(items, node, env_setting);
+    if (name == "cond") return EvalCond(items, node, env_setting);
+    if (name == "begin") return EvalBegin(items, node, env_setting);
+    if (name == "and") return EvalAnd(items, node, env_setting);
+    if (name == "or") return EvalOr(items, node, env_setting);
   }
+//不是 quote / define / if / cond / begin / and / or 這些特殊形式，就往下跑
+  Node procedure = EvalEvalEval(items[0], env_setting, false);//return the value of the first element in the list, which should be a procedure
+  if (procedure->type != Node_Type::Procedure) //如果列表的第一个元素不是Procedure就报错
+    throw MakeEvalError(EvalError_Type::Calling_something_not_function_as_function, AtomToString(procedure), procedure);
 
-  Node procedure = Eval(items[0], env, false);
-  if (procedure->type != Node_Type::Procedure) {
-    throw MakeEvalError(EvalError_Type::Calling_something_not_function_as_function,
-                        AtomToString(procedure), procedure);
-  }
-
-  Valid(procedure->text, (int)items.size() - 1, node, topLevel);
-
-  vector<Node> counts;
+  Valid(procedure->text, (int)items.size() - 1, node, topLayer);//根据 procedure 的名字和参数的数量来判断是否合法,如果不合法就报错
+  //格式正確否則不會丟錯誤,繼續往下跑
+//==============================================================================
+  vector<Node> Evalcounts; //Evalcounts 用來放「已經計算完成的參數」
   for (int i = 1; i < (int)items.size(); ++i) {
-    counts.push_back(Eval(items[i], env, false));
+    //把参数(items)都计算出来後,放在 Evalcounts 里
+    Evalcounts.push_back(EvalEvalEval(items[i], env_setting, false));
   }
-
-  return GO_Procedure(procedure->text, counts, node, env);
+  //根据 procedure 的名字来判断是哪个函数,然后把参数传进去计算结果
+  return Which_Procedure(procedure->text, Evalcounts, node, env_setting); 
+  //real calculation happens in Which_Procedure
 }
 
 void PrintEvalError(EvalError error) {//Eval錯誤的類型有很多種，根據不同的類型打印不同的錯誤信息
@@ -1436,8 +1417,8 @@ int main() {
   cout << "Welcome to OurScheme!" << endl << endl;
 
   Parser parser;
-  Environment env;
-  bool endedByExit = false;
+  Environment env_setting;
+  bool Exit = false;
 
   while (true) {
     cout << "> ";
@@ -1450,32 +1431,27 @@ int main() {
 
     if (!result.success) {
       Print_token_error_message(result.error); //tokenText is used in some error messages
-      if (result.error.type == TokenError_Type::No_More_Input) {
-        break;
-      }
-
+      if (result.error.type == TokenError_Type::No_More_Input) break;
       cout << endl;
       continue;
     }
 
     if (IsExit(result.expression)) {
-      endedByExit = true;
+      Exit = true;
       break;
     }
 
     try {
-      Node value = Eval(result.expression, env, true); 
+      Node value = EvalEvalEval(result.expression, env_setting, true); 
       PrintSExp(value);
+
     } catch (EvalError &error) {
       PrintEvalError(error);
     }
-
     cout << endl;
   }
 
-  if (endedByExit) {
-    cout << endl;
-  }
+  if (Exit) cout << endl;
 
   cout << "Thanks for using OurScheme!";
   return 0;
