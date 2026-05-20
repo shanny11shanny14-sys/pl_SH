@@ -32,6 +32,7 @@ enum class Node_Type {
   Int,
   Float,
   String,
+  Error,
   Symbol,
   Cons,      //列表
   Procedure, //过程
@@ -142,6 +143,10 @@ Node MakeProcedure(string name) {
 
 Node MakeMessage(string text) {
   return MakeNode(Node_Type::Message, text);
+}
+
+Node MakeErrorObject(string text) {
+  return MakeNode(Node_Type::Error, text);
 }
 
 Node MakeCons(Node left, Node right) {
@@ -639,12 +644,18 @@ class Parser {
   }
 };
 
+Parser *g_activeParser = NULL;
+
 bool IsAtom(Node node) {
   return node->type != Node_Type::Cons;
 }
 
 bool IsNumber(Node node) {
   return node->type == Node_Type::Int || node->type == Node_Type::Float;
+}
+
+bool IsStringLike(Node node) {
+  return node->type == Node_Type::String || node->type == Node_Type::Error;
 }
 
 bool IsFalseValue(Node node) {
@@ -685,7 +696,8 @@ long long GetIntValue(Node node) {
 string AtomToString(Node node) {
   if (node->type == Node_Type::Nil) return "nil";
   if (node->type == Node_Type::True) return "#t";
-  if (node->type == Node_Type::String) return "\"" + node->text + "\"";
+  if (node->type == Node_Type::String || node->type == Node_Type::Error)
+    return "\"" + node->text + "\"";
   if (node->type == Node_Type::Int) {
     long long value = stoll(node->text);
     return to_string(value);
@@ -753,6 +765,14 @@ void PrintSExp(Node node) {// 把樹狀資料 node 轉成老師要求的格式�
   }
 }
 
+void WriteSExp(Node node) {
+  vector<string> lines = PrettyPrint(node);
+  for (size_t i = 0; i < lines.size(); ++i) {
+    if (i > 0) cout << "\n";
+    cout << lines[i];
+  }
+}
+
 bool IsExit(Node node) {
   if (node->type != Node_Type::Cons) return false;
   if (!IsNormalList(node)) return false;
@@ -779,6 +799,25 @@ void Print_token_error_message(token_error_message error) {//打印token error
   }
 }
 
+string TokenErrorToString(token_error_message error) {
+  ostringstream out;
+  if (error.type == TokenError_Type::UnexpectedAtom_Or_LeftParen) {
+    out << "ERROR (unexpected token) : atom or '(' expected when token at Line "
+        << error.line << " Column " << error.column << " is >>"
+        << error.tokenText << "<<";
+  } else if (error.type == TokenError_Type::Unexpected_RightParen) {
+    out << "ERROR (unexpected token) : ')' expected when token at Line "
+        << error.line << " Column " << error.column << " is >>"
+        << error.tokenText << "<<";
+  } else if (error.type == TokenError_Type::No_Closing_Quote) {
+    out << "ERROR (no closing quote) : END-OF-LINE encountered at Line "
+        << error.line << " Column " << error.column;
+  } else {
+    out << "ERROR (no more input) : END-OF-FILE encountered";
+  }
+  return out.str();
+}
+
 
 
 class Environment {
@@ -795,6 +834,9 @@ class Environment {
       "boolean?", "symbol?", "+", "-", "*", "/", "not", "and", "or",
       ">", ">=", "<", "<=", "=", "string-append", "string>?",
       "string<?", "string=?", "eqv?", "equal?", "begin", "if", "cond",
+      "create-error-object", "error-object?", "read", "write",
+      "display-string", "newline", "eval", "symbol->string",
+      "number->string",
       "clean-environment", "exit", "verbose", "verbose?"
     };
 
@@ -808,18 +850,6 @@ class Environment {
     user_defined = make_shared<map<string, Node>>();
     outer_layer_set = parent;
   }
-
-  /*Environment( Environment &snapshotFrom, bool snapshot) {
-    original_setting = snapshotFrom.original_setting;
-    user_defined = make_shared<map<string, Node>>(*snapshotFrom.user_defined);
-    if (snapshotFrom.outer_layer_set != NULL) {
-      if (snapshotFrom.outer_layer_set->outer_layer_set == NULL) {
-        outer_layer_set = snapshotFrom.outer_layer_set;
-      } else {
-        outer_layer_set = new Environment(*snapshotFrom.outer_layer_set, true);
-      }
-    }
-  }*/
 
 
 
@@ -842,6 +872,20 @@ class Environment {
   void DefineGlobal(string name, Node value) {
     Environment &root = Root();
     (*root.user_defined)[name] = value;
+  }
+
+  bool SetExisting(string name, Node value) {
+    if (user_defined->count(name)) {
+      (*user_defined)[name] = value;
+      return true;
+    }
+
+    if (outer_layer_set != NULL) return outer_layer_set->SetExisting(name, value);
+    return false;
+  }
+
+  void SetBinding(string name, Node value) {
+    if (!SetExisting(name, value)) DefineGlobal(name, value);
   }
 
   void ClearUserDefinitions() {
@@ -906,7 +950,9 @@ bool Is_original_directly_word(string name) {
       "integer?", "real?", "number?", "string?", "boolean?", "symbol?",
       "+", "-", "*", "/", "not", ">", ">=", "<", "<=", "=",
       "string-append", "string>?", "string<?", "string=?", "eqv?",
-      "equal?", "clean-environment", "exit", "verbose", "verbose?"
+      "equal?", "create-error-object", "error-object?", "read", "write",
+      "display-string", "newline", "eval", "symbol->string",
+      "number->string", "clean-environment", "exit", "verbose", "verbose?"
     };
 
     for (string n : names) 
@@ -1187,8 +1233,20 @@ void IsNumber(string name, Node value) {
 }
 
 void Type_String(string name, Node value) {
-  if (value->type != Node_Type::String) 
+  if (!IsStringLike(value)) 
     throw MakeEvalError(EvalError_Type::Wrong_ArgumentType, name, value);
+}
+
+void Type_PlainString(string name, Node value) {
+  if (value->type != Node_Type::String)
+    throw MakeEvalError(EvalError_Type::Wrong_ArgumentType, name, value);
+}
+
+string NumberToStringValue(Node node) {
+  if (node->type == Node_Type::Int) return to_string(GetIntValue(node));
+  ostringstream out;
+  out << fixed << setprecision(3) << GetDoubleValue(node);
+  return out.str();
 }
 
 
@@ -1204,11 +1262,21 @@ void Valid(string name, int countCount, Node whole, bool topLayer) {
     return;
   }
 
+  if (name == "read" || name == "newline") {
+    if (countCount != 0)
+      throw MakeEvalError(EvalError_Type::Wrong_NumberOfArguments, name, NULL);
+    return;
+  }
+
   // 只能 1 個參數的 primitive procedure
   if (name == "exit" || name == "car" || name == "cdr" || name == "atom?" ||
       name == "pair?" || name == "list?" || name == "null?" ||
       name == "integer?" || name == "real?" || name == "number?" ||
       name == "string?" || name == "boolean?" || name == "symbol?" ||
+      name == "error-object?" || name == "write" ||
+      name == "display-string" || name == "eval" ||
+      name == "create-error-object" || name == "symbol->string" ||
+      name == "number->string" ||
       name == "not" || name == "clean-environment") {
     if (countCount != 1 && name != "clean-environment" && name != "exit") 
       throw MakeEvalError(EvalError_Type::Wrong_NumberOfArguments, name, NULL);
@@ -1313,8 +1381,9 @@ Node Belong_Predicate(string name, vector<Node> &counts) {
   if (name == "null?") return BooleanNode(value->type == Node_Type::Nil);
   if (name == "integer?") return BooleanNode(value->type == Node_Type::Int);
   if (name == "real?" || name == "number?") return BooleanNode(IsNumber(value));
-  if (name == "string?") return BooleanNode(value->type == Node_Type::String);
+  if (name == "string?") return BooleanNode(IsStringLike(value));
   if (name == "boolean?") return BooleanNode(value->type == Node_Type::Nil || value->type == Node_Type::True);
+  if (name == "error-object?") return BooleanNode(value->type == Node_Type::Error);
   return BooleanNode(value->type == Node_Type::Symbol);
 }
 
@@ -1443,11 +1512,12 @@ Node Belong_StringCompare(string name, vector<Node> &counts) {
 
 bool NodeEqv(Node a, Node b) {//比較數值是不是一樣,如果是字符串或者 cons 就直接 false
   if (a == b) return true;
-  if (a->type == Node_Type::String || b->type == Node_Type::String) return false;
+  if (IsStringLike(a) || IsStringLike(b)) return false;
   if (a->type == Node_Type::Cons || b->type == Node_Type::Cons) return false;
 
   if (IsNumber(a) && IsNumber(b)) return fabs(GetDoubleValue(a) - GetDoubleValue(b)) < 0.0001; //fabs 是為了處理浮點數誤差
 
+  if (IsStringLike(a) && IsStringLike(b)) return a->text == b->text;
   if (a->type != b->type) return false;
   return a->text == b->text;
 }
@@ -1472,6 +1542,67 @@ Node Belong_Equality(string name, vector<Node> &counts) {
   return BooleanNode(NodeEqual(counts[0], counts[1]));
 }
 
+Node Belong_Read(vector<Node> &counts) {
+  Counts_size("read", counts, 0);
+  if (g_activeParser == NULL) {
+    return MakeErrorObject("ERROR : END-OF-FILE encountered when there should be more input");
+  }
+
+  Parser::Result result = g_activeParser->Read();
+  if (result.success) return result.expression;
+  if (result.cleanEof || result.error.type == TokenError_Type::No_More_Input) {
+    return MakeErrorObject("ERROR : END-OF-FILE encountered when there should be more input");
+  }
+  return MakeErrorObject(TokenErrorToString(result.error));
+}
+
+Node Belong_Write(vector<Node> &counts) {
+  Counts_size("write", counts, 1);
+  WriteSExp(counts[0]);
+  return counts[0];
+}
+
+Node Belong_DisplayString(vector<Node> &counts) {
+  Counts_size("display-string", counts, 1);
+  Type_String("display-string", counts[0]);
+  cout << counts[0]->text;
+  return counts[0];
+}
+
+Node Belong_Newline(vector<Node> &counts) {
+  Counts_size("newline", counts, 0);
+  cout << "\n";
+  return MakeNil();
+}
+
+Node Belong_CreateErrorObject(vector<Node> &counts) {
+  Counts_size("create-error-object", counts, 1);
+  Type_PlainString("create-error-object", counts[0]);
+  return MakeErrorObject(counts[0]->text);
+}
+
+Node Belong_SymbolToString(vector<Node> &counts) {
+  Counts_size("symbol->string", counts, 1);
+  if (counts[0]->type != Node_Type::Symbol)
+    throw MakeEvalError(EvalError_Type::Wrong_ArgumentType, "symbol->string", counts[0]);
+  return MakeNode(Node_Type::String, counts[0]->text);
+}
+
+Node Belong_NumberToString(vector<Node> &counts) {
+  Counts_size("number->string", counts, 1);
+  IsNumber("number->string", counts[0]);
+  return MakeNode(Node_Type::String, NumberToStringValue(counts[0]));
+}
+
+Node Belong_Eval(vector<Node> &counts, Environment &env_setting) {
+  Counts_size("eval", counts, 1);
+  Node result = EvalEvalEval(counts[0], env_setting, true);
+  if (turmON_verbose && result != NULL && result->type == Node_Type::Message) {
+    cout << result->text << endl;
+  }
+  return result;
+}
+
 Node Which_Procedure(string name, vector<Node> &counts, Node whole,
                        Environment &env_setting) { //根据 procedure 的名字来判断是哪个函数,然后把参数传入對應的函數計算結果
   if (name == "cons") return Belong_Cons(counts);
@@ -1480,7 +1611,8 @@ Node Which_Procedure(string name, vector<Node> &counts, Node whole,
   if (name == "cdr") return Belong_Cdr(counts);
   if (name == "atom?" || name == "pair?" || name == "list?" || name == "null?" ||
       name == "integer?" || name == "real?" || name == "number?" ||
-      name == "string?" || name == "boolean?" || name == "symbol?") {
+      name == "string?" || name == "boolean?" || name == "symbol?" ||
+      name == "error-object?") {
     return Belong_Predicate(name, counts);
   }
   if (name == "+" || name == "-" || name == "*" || name == "/") return Belong_AddSubMulDiv(name, counts);
@@ -1489,6 +1621,14 @@ Node Which_Procedure(string name, vector<Node> &counts, Node whole,
   if (name == "string-append") return Belong_StringAppend(counts);
   if (name == "string>?" || name == "string<?" || name == "string=?") return Belong_StringCompare(name, counts);
   if (name == "eqv?" || name == "equal?") return Belong_Equality(name, counts);
+  if (name == "read") return Belong_Read(counts);
+  if (name == "write") return Belong_Write(counts);
+  if (name == "display-string") return Belong_DisplayString(counts);
+  if (name == "newline") return Belong_Newline(counts);
+  if (name == "create-error-object") return Belong_CreateErrorObject(counts);
+  if (name == "symbol->string") return Belong_SymbolToString(counts);
+  if (name == "number->string") return Belong_NumberToString(counts);
+  if (name == "eval") return Belong_Eval(counts, env_setting);
   if (name == "clean-environment") {
     Counts_size("clean-environment", counts, 0);
     env_setting.ClearUserDefinitions();
@@ -1526,13 +1666,26 @@ Node Belong_UserMadeFunction(Node procedure, vector<Node> &counts) {
 }
 
 
+Node EvalSet(vector<Node> &items, Node whole, Environment &env_setting) {
+  if ((int)items.size() != 3 || items[1]->type != Node_Type::Symbol ||
+      Is_original_directly_word(items[1]->text) || Is_reserve_word(items[1]->text)) {
+    throw MakeEvalError(EvalError_Type::Wrong_NumberOfArguments, "set!", whole);
+  }
+
+  Node value = EvalEvalEval(items[2], env_setting, false);
+  if (value == NULL) throw MakeEvalError(EvalError_Type::NoReturnValue, "", items[2]);
+
+  env_setting.SetBinding(items[1]->text, value);
+  return value;
+}
+
 
 Node EvalEvalEval(Node node, Environment &env_setting, bool topLayer) {
    //如果是原子节点，直接返回
   if (node->type == Node_Type::Nil || node->type == Node_Type::True ||
       node->type == Node_Type::Int || node->type == Node_Type::Float ||
-      node->type == Node_Type::String || node->type == Node_Type::Procedure ||
-      node->type == Node_Type::Message)
+      node->type == Node_Type::String || node->type == Node_Type::Error ||
+      node->type == Node_Type::Procedure || node->type == Node_Type::Message)
     return node; //如果是原子节点，直接返回,因为原子节点本身就是值,不需要再计算了
 
   //只有atom是符号才需要查环境变量 ex: (define x 10) 然後的 (+ x 5) x 就是一个符号,需要查环境变量才能得到它的值
@@ -1550,6 +1703,7 @@ Node EvalEvalEval(Node node, Environment &env_setting, bool topLayer) {
     throw MakeEvalError(EvalError_Type::LevelOfDefine, "", node);
     if (name == "quote") return EvalQuote(items, node);
     if (name == "define") return EvalDefine(items, node, env_setting);
+    if (name == "set!") return EvalSet(items, node, env_setting);
     if (name == "lambda") return EvalLambda(items, node, env_setting);
     if (name == "let") return EvalLet(items, node, env_setting);
     if (name == "if") return EvalIf(items, node, env_setting);
@@ -1658,6 +1812,7 @@ int main() {
   cout << "Welcome to OurScheme!" << endl << endl;
 
   Parser parser;
+  g_activeParser = &parser;
   Environment env_setting;
   bool Exit = false;
 
